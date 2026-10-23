@@ -138,6 +138,12 @@ public:
 
 protected:
     RtcMode draft_ = RtcMode::Utc;
+    // Cached RTC preview (previewFresh_ is cleared on enter).
+    bool previewFresh_ = false;
+    bool previewOk_ = false;
+    RtcMode previewMode_ = RtcMode::Utc;
+    int64_t previewAtMs_ = 0;
+    int64_t previewUtc_ = 0;
     int focusCount() const override { return 4; }
     void activate(int i) override;
 };

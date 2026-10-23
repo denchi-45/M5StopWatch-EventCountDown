@@ -50,4 +50,28 @@ std::string ellipsize(Painter& p, const std::string& s, const lgfx::IFont* font,
     return dots;
 }
 
+const std::string& fittedName(Painter& p, const std::string& s, const lgfx::IFont* font,
+                              float size, float maxW) {
+    struct Entry {
+        std::string in, out;
+        const lgfx::IFont* font = nullptr;
+        float size = 0, maxW = 0, scale = 0;
+    };
+    // Enough for every name on one screen (10 events) plus the countdown title.
+    static Entry cache[12];
+    static size_t next = 0;
+    for (const Entry& e : cache)
+        if (e.font == font && e.size == size && e.maxW == maxW && e.scale == p.s && e.in == s)
+            return e.out;
+    Entry& e = cache[next];
+    next = (next + 1) % (sizeof cache / sizeof cache[0]);
+    e.in = s;
+    e.font = font;
+    e.size = size;
+    e.maxW = maxW;
+    e.scale = p.s;
+    e.out = ellipsize(p, fontSafe(s, font), font, size, maxW);
+    return e.out;
+}
+
 }  // namespace cd

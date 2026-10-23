@@ -4,7 +4,6 @@
 namespace cd {
 
 namespace {
-constexpr int32_t kJstOffset = 9 * 3600;
 // Tolerance for an RTC that runs slightly behind the last established instant.
 constexpr int64_t kLastKnownGoodSlack = 24 * 3600;
 }
@@ -38,10 +37,10 @@ const char* rtcWriteStatusText(RtcWriteStatus s) {
 }
 
 int64_t rtcCalendarToUtc(const Civil& c, RtcMode m) {
-    return civilToEpoch(c) - (m == RtcMode::LocalJst ? kJstOffset : 0);
+    return civilToEpoch(c) - (m == RtcMode::LocalJst ? tzOffsetSec(Tz::AsiaTokyo) : 0);
 }
 bool utcToRtcCalendar(int64_t utc, RtcMode m, Civil& out) {
-    out = epochToCivil(utc + (m == RtcMode::LocalJst ? kJstOffset : 0));
+    out = epochToCivil(utc + (m == RtcMode::LocalJst ? tzOffsetSec(Tz::AsiaTokyo) : 0));
     return validCivil(out);  // calendar year must stay within 2000..2099
 }
 
@@ -116,20 +115,22 @@ bool ClockService::previewRtc(RtcMode mode, int64_t& utcOut) {
     return inUtcRange(utcOut);
 }
 
-void ClockService::applyRtcMode(RtcMode mode) {
-    if (mode == mode_) return;
+bool ClockService::applyRtcMode(RtcMode mode) {
+    if (mode == mode_) return false;
     mode_ = mode;
     int64_t utc;
-    // Reinterpret the stored calendar. Without a readable RTC the running
-    // clock stays as it is (an RTC mode change never invalidates the clock).
-    if (previewRtc(mode, utc)) {
+    // Reinterpret the stored calendar, with the same trust checks as at boot.
+    // A cleared or stale RTC never replaces the running clock (an RTC mode
+    // change never invalidates or degrades the clock).
+    const bool adopted = readTrustedRtc(mode, utc);
+    if (adopted) {
         hal_->setSystemUtcUs(utc * 1000000LL);
         valid_ = true;
         source_ = ClockSource::Rtc;
-        rtcValid_ = true;
         lastEstablished_ = utc;
     }
     ++generation_;
+    return adopted;
 }
 
 }  // namespace cd

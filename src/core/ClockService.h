@@ -62,9 +62,10 @@ public:
     // False when no readable/valid RTC exists (preview = UNAVAILABLE).
     bool previewRtc(RtcMode mode, int64_t& utcOut);
     // Applies a new interpretation (spec 2.14): the RTC calendar is not rewritten;
-    // when it is readable, the system clock follows the new interpretation.
+    // when the RTC passes the boot-time trust checks under the new mode, the
+    // system clock follows it (returns true). Otherwise the clock is kept.
     // Call only after the mode was persisted.
-    void applyRtcMode(RtcMode mode);
+    bool applyRtcMode(RtcMode mode);
 
 private:
     IClockHal* hal_ = nullptr;

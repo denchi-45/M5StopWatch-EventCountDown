@@ -17,7 +17,6 @@ struct Request {
     char server[64];
     int64_t startedMs;
 };
-constexpr uint32_t kNtpToUnix = 2208988800UL;
 
 uint32_t be32(const uint8_t* p) {
     return uint32_t(p[0]) << 24 | uint32_t(p[1]) << 16 | uint32_t(p[2]) << 8 | p[3];
@@ -60,7 +59,7 @@ void query(const Request& req, NtpResult& r) {
                 be32(in + 24) != nonceHi || be32(in + 28) != nonceLo)
                 continue;  // not our answer / kiss-of-death
             const uint32_t sec = be32(in + 40), frac = be32(in + 44);
-            const int64_t txMs = (int64_t(sec) - kNtpToUnix) * 1000 + ((uint64_t(frac) * 1000) >> 32);
+            const int64_t txMs = ntpToUnixMs(sec, frac);
             if (!inUtcRange(txMs / 1000)) {
                 udp.stop();
                 return fail(r, "server time out of range");

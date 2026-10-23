@@ -24,6 +24,8 @@ public:
     // False when the worker is still busy with an older request.
     bool request(uint32_t generation, const char* server);
     bool poll(NtpResult& out);
+    // The worker is still finishing a (possibly abandoned) request.
+    bool busy() const { return busy_; }
 
 private:
     void* reqQueue_ = nullptr;

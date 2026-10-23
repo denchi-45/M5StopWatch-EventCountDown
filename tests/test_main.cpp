@@ -71,6 +71,18 @@ static void testTimeMath() {
 }
 
 // ---------------------------------------------------------------- countdown
+static void testNtpEra() {
+    // 2026-10-23T00:00:00Z, era 0.
+    CHECK(ntpToUnixMs(uint32_t(1792713600LL + 2208988800LL), 0) == 1792713600000LL);
+    CHECK(ntpToUnixMs(uint32_t(946684800LL + 2208988800LL), 0x80000000UL) == 946684800500LL);
+    // The 32-bit seconds wrap on 2036-02-07T06:28:16Z.
+    CHECK(ntpToUnixMs(0xFFFFFFFFUL, 0) == 2085978495000LL);
+    CHECK(ntpToUnixMs(0, 0) == 2085978496000LL);
+    // 2038-02-01T00:00:00Z (era 1) and 2099-12-31T23:59:59Z stay in range.
+    CHECK(ntpToUnixMs(uint32_t(2148595200LL + 2208988800LL - 0x100000000LL), 0) == 2148595200000LL);
+    CHECK(inUtcRange(ntpToUnixMs(uint32_t(kMaxUtc + 2208988800LL - 0x100000000LL), 0) / 1000));
+}
+
 static void testCountdown() {
     const int64_t s = 1000000000, t = s + 100 * 86400;
     auto v = computeCountdown(false, true, s, s, t);
@@ -368,8 +380,31 @@ static void testClock() {
         ClockService d;
         d.begin(&n, RtcMode::Utc, 0);
         d.setUtcMs(instant * 1000, ClockSource::Manual);
-        d.applyRtcMode(RtcMode::LocalJst);
+        CHECK(!d.applyRtcMode(RtcMode::LocalJst));
         CHECK(d.valid() && d.nowUtc() == instant && !d.previewRtc(RtcMode::Utc, pv));
+    }
+    // A cleared RTC (2000-01-01) never replaces a good clock on a mode change.
+    {
+        FakeHal h;
+        ClockService c;
+        c.begin(&h, RtcMode::Utc, 0);
+        h.writeOk = false;  // the NTP time never reached the RTC
+        c.setUtcMs(instant * 1000, ClockSource::Ntp);
+        CHECK(!c.applyRtcMode(RtcMode::LocalJst));
+        CHECK(c.valid() && c.nowUtc() == instant && c.source() == ClockSource::Ntp && !c.rtcValid());
+        CHECK(c.lastEstablishedUtc() == instant && c.rtcMode() == RtcMode::LocalJst);
+    }
+    // A stale RTC (well before the last established instant) is also rejected.
+    {
+        FakeHal h;
+        ClockService c;
+        c.begin(&h, RtcMode::Utc, 0);
+        c.setUtcMs(instant * 1000, ClockSource::Manual);
+        h.rtc = {2025, 1, 1, 0, 0, 0};
+        CHECK(!c.applyRtcMode(RtcMode::LocalJst) && c.nowUtc() == instant);
+        // Within the slack (the 9 h reinterpretation itself) it is followed.
+        h.rtc = {2026, 10, 22, 20, 18, 0};
+        CHECK(c.applyRtcMode(RtcMode::Utc) && c.nowUtc() == instant && c.source() == ClockSource::Rtc);
     }
 }
 
@@ -572,10 +607,20 @@ static void testCodec() {
     CHECK(validNtpServer("pool.ntp.org") && !validNtpServer("bad host") && !validNtpServer(""));
     CHECK(cycleStep(kBrightnessSteps, uint8_t(65), +1) == 80);
     CHECK(cycleStep(kBrightnessSteps, uint8_t(10), -1) == 100);
+    // Values set from the web that are not presets move to the nearest preset.
+    CHECK(cycleStep(kBrightnessSteps, uint8_t(42), +1) == 50);
+    CHECK(cycleStep(kBrightnessSteps, uint8_t(42), -1) == 35);
+    CHECK(cycleStep(kBrightnessSteps, uint8_t(5), -1) == 100);
+    CHECK(cycleStep(kBrightnessSteps, uint8_t(5), +1) == 10);
+    CHECK(cycleStep(kDimSteps, uint16_t(45), +1) == 60);
+    CHECK(cycleStep(kDimSteps, uint16_t(45), -1) == 30);
+    CHECK(cycleStep(kDimSteps, uint16_t(3000), +1) == 0);  // past 300 s comes "never"
+    CHECK(cycleStep(kDimSteps, uint16_t(300), +1) == 0);
 }
 
 int main() {
     testTimeMath();
+    testNtpEra();
     testCountdown();
     testUtf8();
     testRepository();

@@ -57,7 +57,9 @@ public:
     SetResult setClockLocal(const Civil& local);  // display TZ, MANUAL
     // Saves everything except the RTC mode (that has its own confirmed flow).
     bool saveSettings(const DeviceSettings& s);
-    bool saveRtcMode(RtcMode mode);
+    // clockFollowed: the RTC passed the trust checks under the new mode and the
+    // clock now follows it (false = the running clock was kept).
+    bool saveRtcMode(RtcMode mode, bool* clockFollowed = nullptr);
     NtpScheduler::Manual requestNtpSync();
     bool saveWifi(const std::string& ssid, const std::string* password);
 
@@ -116,6 +118,11 @@ private:
     uint32_t lastTickGen_ = 0;
     bool eventsSaveRetry_ = false;
     int64_t eventsRetryAt_ = 0;
+    // An arrival whose record could not be stored yet; notified once the retry
+    // succeeds within kArrivalNotifyWindowMs (0 = none pending).
+    int64_t pendingNotifyUntil_ = 0;
+    // Stored events were unreadable and could not be backed up: never overwrite them.
+    bool eventsReadOnly_ = false;
     int64_t selectionSaveAt_ = 0;  // 0 = nothing pending
 
     // NTP
@@ -142,12 +149,16 @@ private:
 
     void loadPersisted();
     bool persistEvents();
+    void onEventsPersisted(int64_t now);
+    template <typename Op>
+    RepoError mutateEvents(Op op, bool& saveFailed);
     void tickClock();
     void tickNetwork(int64_t now);
     void tickPower(int64_t now, bool activity);
     void notifyArrival();
     void render();
     void applyBrightness();
+    static bool onExternalPower();
     void afterClockSet(SetResult r, ClockSource src);
     Screen* screenFor(ScreenId id);
     static void launcherShutdown(void* ctx);

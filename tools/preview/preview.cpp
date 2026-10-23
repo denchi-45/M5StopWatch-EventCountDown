@@ -54,7 +54,7 @@ bool App::selectNext() { return repo_.selectNext(); }
 RepoError App::selectEvent(const std::string& id, bool, bool*) { return repo_.select(id); }
 SetResult App::setClockLocal(const Civil&) { return SetResult::Ok; }
 bool App::saveSettings(const DeviceSettings& s) { settings_ = s; return true; }
-bool App::saveRtcMode(RtcMode) { return true; }
+bool App::saveRtcMode(RtcMode, bool*) { return true; }
 NtpScheduler::Manual App::requestNtpSync() { return NtpScheduler::Manual::Started; }
 void App::previewBrightness(uint8_t) {}
 void App::restoreBrightness() {}

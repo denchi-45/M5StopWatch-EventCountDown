@@ -5,6 +5,14 @@
 
 namespace cd {
 
+namespace {
+// time_t is 32-bit on Arduino-ESP32 2.x (IDF 4.4), so the libc clock cannot
+// hold instants after 2038-01-19 while the app accepts dates up to 2099.
+// The wall clock is therefore kept here as UTC at a monotonic base.
+int64_t g_baseUtcUs = 0;
+int64_t g_baseMonoUs = 0;
+}  // namespace
+
 int64_t monoMs() { return esp_timer_get_time() / 1000; }
 
 bool RtcHal::rtcPresent() { return M5.Rtc.isEnabled(); }
@@ -29,16 +37,18 @@ bool RtcHal::writeRtc(const Civil& c) {
 }
 
 void RtcHal::setSystemUtcUs(int64_t utcUs) {
-    timeval tv;
-    tv.tv_sec = time_t(utcUs / 1000000);
-    tv.tv_usec = suseconds_t(utcUs % 1000000);
-    settimeofday(&tv, nullptr);
+    g_baseMonoUs = esp_timer_get_time();
+    g_baseUtcUs = utcUs;
+    // Mirror into the libc clock only while time_t can represent it.
+    const int64_t sec = utcUs / 1000000;
+    if (sec == int64_t(time_t(sec))) {
+        timeval tv;
+        tv.tv_sec = time_t(sec);
+        tv.tv_usec = suseconds_t(utcUs % 1000000);
+        settimeofday(&tv, nullptr);
+    }
 }
 
-int64_t RtcHal::systemUtcUs() {
-    timeval tv;
-    gettimeofday(&tv, nullptr);
-    return int64_t(tv.tv_sec) * 1000000LL + tv.tv_usec;
-}
+int64_t RtcHal::systemUtcUs() { return g_baseUtcUs + (esp_timer_get_time() - g_baseMonoUs); }
 
 }  // namespace cd

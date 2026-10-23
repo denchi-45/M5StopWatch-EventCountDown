@@ -275,7 +275,9 @@ $("saveDev").onclick=async()=>{
     if(!confirm("Change RTC interpretation to "+$("sRtc").value+"? The displayed time will change accordingly."))return;
     body.rtcInterpretation=$("sRtc").value;body.previewToken=prevTok;
   }
-  try{await api("PUT","/api/settings",body);show("Settings saved");await loadSettings();await loadEvents()}
+  try{const r=await api("PUT","/api/settings",body);
+    show(r&&r.clockFollowed===false?"Settings saved. The RTC value is not trustworthy, so the current time was kept.":"Settings saved");
+    await loadSettings();await loadEvents()}
   catch(e){if(e.status===409){show(e.message,1);$("sRtc").onchange()}else show(e.message,1)}
 };
 

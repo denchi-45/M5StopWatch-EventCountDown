@@ -375,13 +375,16 @@ void WebConfigServer::handleSettingsPut() {
         }
     }
     if (!app_.saveSettings(s)) return sendError(500, "could not save settings; nothing changed");
+    bool followed = true;
     if (changeMode) {
         previewToken_.clear();
-        if (!app_.saveRtcMode(mode))
+        if (!app_.saveRtcMode(mode, &followed))
             return sendError(500, "settings saved, but the RTC mode could not be saved (unchanged)");
     }
     app_.noteSetupActivity();
-    sendOk();
+    // clockFollowed=false: the RTC failed the trust checks; the running clock was kept.
+    sendJson(200, followed ? "{\"ok\":true,\"clockFollowed\":true}"
+                           : "{\"ok\":true,\"clockFollowed\":false}");
 }
 
 void WebConfigServer::handleRtcPreview() {

@@ -115,9 +115,9 @@ sh tests/run_tests.sh           # g++ (C++17)。Windows では WSL で実行
 sh tools/preview/build.sh       # .pio/preview/out/*.png に全画面を描画
 ```
 
-ユニットテストは 237 チェック（日時・閏年・月末、カウントダウン/進捗 0/50/100%、UTF-8 名、10 件循環と無効スキップ、
-選択フォールバック、到達通知と抑止、RTC の UTC/JST 往復と二重 +9h なし、RTC 書込失敗、NTP/Wi-Fi タイマー、
-ボタン/タッチのジェスチャと A+B 抑止、JSON v3 保存と v2 移行）。
+ユニットテストは 257 チェック（日時・閏年・月末、NTP 時刻の 2036 年桁あふれ、カウントダウン/進捗 0/50/100%、UTF-8 名、10 件循環と無効スキップ、
+選択フォールバック、到達通知と抑止、RTC の UTC/JST 往復と二重 +9h なし、RTC 書込失敗、RTC MODE 切替時の信頼性チェック、NTP/Wi-Fi タイマー、
+ボタン/タッチのジェスチャと A+B 抑止、JSON v3 保存と v2 移行、段階外の明るさ・減光時間の ＋/−）。
 
 ## 検証結果（2026-10-23）
 
@@ -125,11 +125,11 @@ sh tools/preview/build.sh       # .pio/preview/out/*.png に全画面を描画
 
 | 項目 | 結果 |
 |---|---|
-| `pio run -e m5stopwatch` | 成功、警告なし。firmware.bin **1,404,288 bytes**（ゲスト上限 2,031,616 の 69%）、RAM 静的 48.7 KB |
-| `pio run -e m5stack-core2`（長方形・ESP32） | 成功（1,441,113 bytes） |
+| `pio run -e m5stopwatch` | 成功、警告なし。firmware.bin **1,406,288 bytes**（ゲスト上限 2,031,616 の 69%）、RAM 静的 48.7 KB |
+| `pio run -e m5stack-core2`（長方形・ESP32） | 成功（1,443,465 bytes） |
 | MultiFirm `inspect` | 「受け付け可能」（ゲスト上限内、付加 SHA 有効） |
 | upload guard | `pio run -t upload` が拒否されることを確認 |
-| ユニットテスト（WSL g++ 13） | 237 passed / 0 failed |
+| ユニットテスト（WSL g++ 13） | 257 passed / 0 failed |
 | 画面描画 | 実際の画面クラスを M5GFX（Linux ビルド）で 466×466 / 320×240 / 240×135 に描画して目視確認。AddressSanitizer でエラーなし |
 | Web UI | JS 構文チェック、ローカル日時⇔UTC 変換（JST/UTC・存在しない日付の拒否）を Node で確認 |
 | Launcher の RTC 形式 | Launcher のソース/テスト（`M5Hal::writeRtc`、1 Feb 00:00 JST → RTC 31 Jan 15:00）から **UTC 保存**と判断。既定の `UTC` 解釈と一致 |
@@ -146,13 +146,18 @@ sh tools/preview/build.sh       # .pio/preview/out/*.png に全画面を描画
 
 ## 設計上の注意・既知の制限
 
-- **NVS:** 名前空間 `m5cd_v2` のみ使用。`WiFi.persistent(false)` で Wi-Fi 資格情報を共有 NVS
+- **NVS:** 名前空間 `m5cd_v2` のみ使用。読めないイベントデータは内容ごとのキー `evbak_<hash>` に退避し
+  （既存の退避は上書きしない）、退避に失敗したときはイベントの変更を拒否して元データを守る。`WiFi.persistent(false)` で Wi-Fi 資格情報を共有 NVS
   （Launcher と共用）に書かない。初回導入やパーティション変更で NVS が消える場合がある（MultiFirm の仕様）。
 - **時刻:** 内部・保存値はすべて UTC 秒（int64）。表示 TZ と各イベントの TZ は v1 では `Asia/Tokyo` と `UTC` のみ。
   RTC の妥当性は「年 ≥ 2024・暦として正しい・最後に確立した時刻より 1 日以上前でない」で判定する。
 - **RTC MODE の切替**は RTC の値の「解釈」を変えるだけで、RTC 自体は書き換えない（仕様 2.14）。Web では
-  60 秒有効のプレビュートークンが必要。
+  60 秒有効のプレビュートークンが必要。新しい解釈の RTC が起動時と同じ妥当性チェックに通らない場合（クリア済み・古い値）は、
+  モードだけ保存して動作中の時計はそのまま残す。
+- **2038 年問題:** Arduino-ESP32 2.x の `time_t` は 32 bit のため、壁時計は libc ではなく `RtcHal` が
+  「基準 UTC + esp_timer の経過」で保持する（2099 年まで有効）。NTP は 2036 年の桁あふれ（era 1）を処理する。
 - **通知:** 選択中の有効イベントが通常の時間経過で到達したときだけ、記録を NVS に保存できた場合に最大 1 秒鳴らす/振動。
+  保存に失敗した場合は 10 秒ごとに再試行し、60 秒以内に保存できればその時点で通知する。
   起動時・時刻補正・非選択イベントでは鳴らさない。音は初期 OFF。
 - **Web の保護:** WPA2（本体表示の鍵）、AP インターフェイス以外からの要求拒否、Host ヘッダ検査、
   変更系 API はセッショントークン（`X-CD-Session`）必須、本文 8 KiB 上限。

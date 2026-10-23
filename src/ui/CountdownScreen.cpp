@@ -27,7 +27,7 @@ void daysText(int64_t days, char* buf, size_t n) {
 std::string eventName(App& app, Painter& p, float maxW, float size) {
     const Event* e = app.events().selected();
     if (!e) return "";
-    return ellipsize(p, fontSafe(e->name, fontset::japan), fontset::japan, size, maxW);
+    return fittedName(p, e->name, fontset::japan, size, maxW);
 }
 
 void roundCommonBackground(Painter& p, const char* title) {

@@ -1,6 +1,7 @@
 #include "SettingsStore.h"
 #include <Preferences.h>
 #include <esp_random.h>
+#include <cstdio>
 #include <vector>
 
 namespace cd {
@@ -8,7 +9,9 @@ namespace cd {
 namespace {
 Preferences prefs;
 constexpr const char* kEvents = "events";
-constexpr const char* kEventsLegacy = "events_v2";
+// Unreadable event blobs are kept under "evbak_<fnv1a32>": one key per distinct
+// payload, so a later corruption never overwrites an earlier backup.
+constexpr const char* kEventsBackupPrefix = "evbak_";
 constexpr const char* kSettings = "cfg";
 constexpr const char* kWifiSsid = "sta_ssid";
 constexpr const char* kWifiPass = "sta_pw";
@@ -58,8 +61,14 @@ bool SettingsStore::putI64Verified(const char* key, int64_t v) {
 
 bool SettingsStore::loadEvents(std::string& json) { return getBlob(kEvents, json); }
 bool SettingsStore::saveEvents(const std::string& json) { return putBlobVerified(kEvents, json); }
-bool SettingsStore::backupLegacyEvents(const std::string& json) {
-    return putBlobVerified(kEventsLegacy, json);
+bool SettingsStore::backupCorruptEvents(const std::string& json) {
+    uint32_t h = 2166136261u;
+    for (unsigned char c : json) h = (h ^ c) * 16777619u;
+    char key[16];
+    std::snprintf(key, sizeof key, "%s%08lx", kEventsBackupPrefix, (unsigned long)h);
+    std::string existing;
+    if (getBlob(key, existing)) return existing == json;  // same payload already kept
+    return putBlobVerified(key, json);
 }
 bool SettingsStore::loadSettings(std::string& json) { return getBlob(kSettings, json); }
 bool SettingsStore::saveSettings(const std::string& json) {

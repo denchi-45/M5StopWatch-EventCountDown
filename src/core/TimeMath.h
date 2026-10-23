@@ -89,6 +89,15 @@ inline Civil epochToCivil(int64_t t) {
 
 inline bool inUtcRange(int64_t t) { return t >= kMinUtc && t <= kMaxUtc; }
 
+// NTP timestamp (seconds since 1900 + 2^-32 fraction) to Unix milliseconds.
+// The 32-bit seconds field wraps on 2036-02-07 06:28:16Z (era 1); values with
+// the top bit clear are taken as era 1 (RFC 4330 section 3), valid until 2104.
+inline int64_t ntpToUnixMs(uint32_t sec, uint32_t frac) {
+    int64_t s = sec;
+    if (!(sec & 0x80000000UL)) s += 0x100000000LL;
+    return (s - 2208988800LL) * 1000 + int64_t((uint64_t(frac) * 1000) >> 32);
+}
+
 // Local civil (in tz) -> UTC. False when the civil value itself is invalid or
 // the resulting instant leaves the supported window.
 inline bool localToUtc(const Civil& local, Tz tz, int64_t& utc) {

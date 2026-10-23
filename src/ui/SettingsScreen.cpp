@@ -197,8 +197,7 @@ void EventListPage::draw(Painter& p) {
         s.showOff = false;
         if (!e.enabled) s.on = pal::frameDim;
         SevenSegmentRenderer::draw(p, idx, r.x + 20, cy - 10, s);
-        const std::string name =
-            ellipsize(p, fontSafe(e.name, fontset::japan), fontset::japan, 0.8f, 168);
+        const std::string& name = fittedName(p, e.name, fontset::japan, 0.8f, 168);
         p.text(name.c_str(), r.x + 62, cy + 1, middle_left, fontset::japan, 0.8f,
                e.enabled ? pal::text : pal::textMuted);
         p.line(r.x + w - 76, cy - 11, r.x + w - 76, cy + 11, 1, pal::frameDim);
@@ -519,6 +518,7 @@ void TimeStatusPage::activate(int i) {
 void RtcModePage::enter(ScreenId) {
     draft_ = app.settings().rtcMode;
     focus_ = draft_ == RtcMode::Utc ? 0 : 1;
+    previewFresh_ = false;
     editing_ = false;
 }
 
@@ -552,8 +552,15 @@ void RtcModePage::draw(Painter& p) {
     p.text(hdr, C, 272, middle_center, fontset::small, 0.8f, pal::redPale);
     char nowD[16] = "--", nowT[12] = "", aftD[16] = "UNAVAILABLE", aftT[12] = "";
     if (app.clock().valid()) localStamp(app, app.clock().nowUtc(), nowD, sizeof nowD, nowT, sizeof nowT);
-    int64_t after;
-    if (app.clock().previewRtc(draft_, after)) localStamp(app, after, aftD, sizeof aftD, aftT, sizeof aftT);
+    // The RTC is read over I2C: at most once a second or when the choice changes.
+    const int64_t mono = app.monoNow();
+    if (!previewFresh_ || previewMode_ != draft_ || mono - previewAtMs_ >= 1000) {
+        previewOk_ = app.clock().previewRtc(draft_, previewUtc_);
+        previewMode_ = draft_;
+        previewAtMs_ = mono;
+        previewFresh_ = true;
+    }
+    if (previewOk_) localStamp(app, previewUtc_, aftD, sizeof aftD, aftT, sizeof aftT);
     char l1[48], l2[48];
     std::snprintf(l1, sizeof l1, "NOW    %s %s", nowD, nowT);
     std::snprintf(l2, sizeof l2, "AFTER  %s %s", aftD, aftT);
@@ -573,8 +580,9 @@ void RtcModePage::activate(int i) {
             app.toast("NO CHANGE");
             return app.back();
         }
-        if (app.saveRtcMode(draft_)) {
-            app.toast("RTC MODE SAVED");
+        bool followed = false;
+        if (app.saveRtcMode(draft_, &followed)) {
+            app.toast(followed ? "RTC MODE SAVED" : "SAVED - RTC UNTRUSTED, CLOCK KEPT");
             app.back();
         } else {
             app.toast("SAVE FAILED - MODE UNCHANGED", true);

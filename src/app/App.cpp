@@ -13,6 +13,9 @@ namespace {
 App g_app;
 constexpr int64_t kFrameMinMs = 40;
 constexpr uint8_t kDimPercent = 12;
+constexpr int64_t kEventsRetryMs = 10000;
+// A delayed arrival notification is still given if the record is stored this soon.
+constexpr int64_t kArrivalNotifyWindowMs = 60000;
 }  // namespace
 
 App& app() { return g_app; }
@@ -92,15 +95,27 @@ void App::loadPersisted() {
                 configError_ = "migrated events could not be saved as v3";
             break;
         case LoadResult::Corrupt:
-            // Keep the unconvertible data aside; the slot is reused only after
-            // the copy verified.
-            if (store_.backupLegacyEvents(json)) configError_ = "stored events invalid (" + err + "); kept as backup";
-            else configError_ = "stored events invalid (" + err + ")";
+            // Keep the unreadable data aside; the slot is reused only after the
+            // copy verified. Without a backup, event changes are refused.
+            if (store_.backupCorruptEvents(json)) {
+                configError_ = "stored events invalid (" + err + "); kept as backup";
+            } else {
+                eventsReadOnly_ = true;
+                configError_ = "stored events invalid (" + err + "); backup failed, events read-only";
+            }
             break;
     }
 }
 
-bool App::persistEvents() { return store_.saveEvents(encodeEvents(repo_)); }
+bool App::persistEvents() { return !eventsReadOnly_ && store_.saveEvents(encodeEvents(repo_)); }
+
+void App::onEventsPersisted(int64_t now) {
+    eventsSaveRetry_ = false;
+    if (pendingNotifyUntil_) {
+        if (now <= pendingNotifyUntil_) notifyArrival();
+        pendingNotifyUntil_ = 0;
+    }
+}
 
 // ------------------------------------------------------------------ loop
 
@@ -150,8 +165,8 @@ void App::loop() {
         selectionSaveAt_ = persistEvents() ? 0 : now + 5000;
     }
     if (eventsSaveRetry_ && now >= eventsRetryAt_) {
-        if (persistEvents()) eventsSaveRetry_ = false;
-        else eventsRetryAt_ = now + 10000;
+        if (persistEvents()) onEventsPersisted(now);
+        else eventsRetryAt_ = now + kEventsRetryMs;
     }
 
     // Notification output timing (max 1 s).
@@ -185,13 +200,16 @@ void App::tickClock() {
     bool changed = false;
     const bool notify = repo_.processArrivals(lastTickUtc_, now, normal, changed);
     if (changed) {
-        // Record first; output only when the record is safely stored.
+        // Record first; output only when the record is safely stored. The
+        // arrival is already marked handled in memory, so a failed save keeps
+        // the notification pending for the retry.
+        const int64_t t = monoMs();
+        if (notify) pendingNotifyUntil_ = t + kArrivalNotifyWindowMs;
         if (persistEvents()) {
-            eventsSaveRetry_ = false;
-            if (notify) notifyArrival();
+            onEventsPersisted(t);
         } else {
             eventsSaveRetry_ = true;
-            eventsRetryAt_ = monoMs() + 10000;
+            eventsRetryAt_ = t + kEventsRetryMs;
         }
     }
     haveTick_ = true;
@@ -224,7 +242,10 @@ void App::tickNetwork(int64_t now) {
     if (edge != 0 && ntpSched_.setConnected(edge > 0, now)) ++ntpGen_;
     if (edge != 0) dirty_ = true;
 
-    switch (ntpSched_.poll(now)) {
+    // A cancelled request may still occupy the worker (e.g. a slow DNS lookup);
+    // wait for it instead of starting and counting a failure.
+    const bool workerBusy = !ntpSched_.inFlight() && ntp_.busy();
+    switch (workerBusy ? NtpScheduler::Tick::None : ntpSched_.poll(now)) {
         case NtpScheduler::Tick::Start:
             ++ntpGen_;
             if (!ntp_.request(ntpGen_, settings_.ntpServer)) {
@@ -265,13 +286,19 @@ void App::tickNetwork(int64_t now) {
 void App::tickPower(int64_t now, bool activity) {
     if (activity) lastInputMs_ = now;
     bool wantDim = settings_.dimAfterSec != 0 && now - lastInputMs_ >= int64_t(settings_.dimAfterSec) * 1000;
-    if (settings_.keepAwakeOnUsb && M5.Power.isCharging() != m5::Power_Class::is_discharging) wantDim = false;
+    if (settings_.keepAwakeOnUsb && onExternalPower()) wantDim = false;
     if (webActive_) wantDim = false;  // credentials must stay readable
     if (wantDim != dimmed_) {
         if (!wantDim && activity) swallowNext_ = true;
         dimmed_ = wantDim;
         applyBrightness();
     }
+}
+
+bool App::onExternalPower() {
+    // charge_unknown (no charger status) does not count as USB power.
+    if (M5.Power.isCharging() == m5::Power_Class::is_charging) return true;
+    return M5.Power.getVBUSVoltage() > 4300;  // negative when not measurable
 }
 
 void App::applyBrightness() {
@@ -323,10 +350,11 @@ RepoError App::selectEvent(const std::string& id, bool persistNow, bool* saveFai
     return RepoError::Ok;
 }
 
-RepoError App::addEvent(const EventInput& in, std::string* id, std::string* detail, bool& saveFailed) {
+template <typename Op>
+RepoError App::mutateEvents(Op op, bool& saveFailed) {
     saveFailed = false;
     const EventRepository snapshot = repo_;
-    const RepoError r = repo_.add(in, [] { return esp_random(); }, id, detail);
+    const RepoError r = op(repo_);
     if (r != RepoError::Ok) return r;
     if (!persistEvents()) {
         repo_ = snapshot;
@@ -336,52 +364,26 @@ RepoError App::addEvent(const EventInput& in, std::string* id, std::string* deta
     selectionSaveAt_ = 0;
     dirty_ = true;
     return r;
+}
+
+RepoError App::addEvent(const EventInput& in, std::string* id, std::string* detail, bool& saveFailed) {
+    return mutateEvents(
+        [&](EventRepository& r) { return r.add(in, [] { return esp_random(); }, id, detail); },
+        saveFailed);
 }
 
 RepoError App::updateEvent(const std::string& id, const EventInput& in, std::string* detail,
                            bool& saveFailed) {
-    saveFailed = false;
-    const EventRepository snapshot = repo_;
-    const RepoError r = repo_.update(id, in, detail);
-    if (r != RepoError::Ok) return r;
-    if (!persistEvents()) {
-        repo_ = snapshot;
-        saveFailed = true;
-        return r;
-    }
-    selectionSaveAt_ = 0;
-    dirty_ = true;
-    return r;
+    return mutateEvents([&](EventRepository& r) { return r.update(id, in, detail); }, saveFailed);
 }
 
 RepoError App::deleteEvent(const std::string& id, bool& saveFailed) {
-    saveFailed = false;
-    const EventRepository snapshot = repo_;
-    const RepoError r = repo_.remove(id);  // includes the selection fallback
-    if (r != RepoError::Ok) return r;
-    if (!persistEvents()) {
-        repo_ = snapshot;
-        saveFailed = true;
-        return r;
-    }
-    selectionSaveAt_ = 0;
-    dirty_ = true;
-    return r;
+    // remove() includes the selection fallback.
+    return mutateEvents([&](EventRepository& r) { return r.remove(id); }, saveFailed);
 }
 
 RepoError App::reorderEvents(const std::vector<std::string>& ids, bool& saveFailed) {
-    saveFailed = false;
-    const EventRepository snapshot = repo_;
-    const RepoError r = repo_.reorder(ids);
-    if (r != RepoError::Ok) return r;
-    if (!persistEvents()) {
-        repo_ = snapshot;
-        saveFailed = true;
-        return r;
-    }
-    selectionSaveAt_ = 0;
-    dirty_ = true;
-    return r;
+    return mutateEvents([&](EventRepository& r) { return r.reorder(ids); }, saveFailed);
 }
 
 void App::afterClockSet(SetResult r, ClockSource src) {
@@ -427,13 +429,14 @@ bool App::saveSettings(const DeviceSettings& in) {
     return true;
 }
 
-bool App::saveRtcMode(RtcMode mode) {
+bool App::saveRtcMode(RtcMode mode, bool* clockFollowed) {
     DeviceSettings s = settings_;
     s.rtcMode = mode;
     // Persist first; on failure neither the mode nor the clock changes.
     if (!store_.saveSettings(encodeSettings(s))) return false;
     settings_ = s;
-    clock_.applyRtcMode(mode);
+    const bool followed = clock_.applyRtcMode(mode);
+    if (clockFollowed) *clockFollowed = followed;
     if (ntpSched_.clockOverridden(monoMs())) ++ntpGen_;
     if (clock_.valid()) store_.saveLastKnownGoodUtc(clock_.lastEstablishedUtc());
     dirty_ = true;

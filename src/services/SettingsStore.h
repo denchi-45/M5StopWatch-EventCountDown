@@ -15,8 +15,9 @@ public:
 
     bool loadEvents(std::string& json);
     bool saveEvents(const std::string& json);
-    // Keeps unconvertible legacy data aside before the slot is reused.
-    bool backupLegacyEvents(const std::string& json);
+    // Keeps unreadable event data aside before the slot may be reused. Never
+    // overwrites an earlier backup; true only when the copy is verified.
+    bool backupCorruptEvents(const std::string& json);
 
     bool loadSettings(std::string& json);
     bool saveSettings(const std::string& json);

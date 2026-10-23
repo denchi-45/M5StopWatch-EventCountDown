@@ -43,12 +43,24 @@ inline bool validNtpServer(const char* s) {
     return s[0] != '.' && s[0] != '-' && s[n - 1] != '.' && s[n - 1] != '-';
 }
 
+// Next/previous preset in list order (wrapping). A value that is not a preset
+// (e.g. 42 % set from the web) moves to the nearest preset in that direction;
+// past the ends it wraps like the presets do.
 template <typename T, size_t N>
 T cycleStep(const T (&steps)[N], T current, int dir) {
     size_t i = 0;
     while (i < N && steps[i] != current) ++i;
-    if (i == N) return steps[0];
-    return steps[(i + N + (dir >= 0 ? 1 : N - 1)) % N];
+    if (i < N) return steps[(i + N + (dir >= 0 ? 1 : N - 1)) % N];
+    size_t best = N, lo = 0, hi = 0;
+    for (size_t k = 0; k < N; ++k) {
+        if (steps[k] < steps[lo]) lo = k;
+        if (steps[k] > steps[hi]) hi = k;
+        if (dir >= 0 ? steps[k] > current && (best == N || steps[k] < steps[best])
+                     : steps[k] < current && (best == N || steps[k] > steps[best]))
+            best = k;
+    }
+    if (best != N) return steps[best];
+    return dir >= 0 ? steps[(hi + 1) % N] : steps[(lo + N - 1) % N];
 }
 
 }  // namespace cd
