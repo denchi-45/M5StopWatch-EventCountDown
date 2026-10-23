@@ -106,7 +106,36 @@ web/index.html                  Web UI（firmware に埋め込み。LittleFS は
 tests/                          ホスト用ユニットテスト
 tools/upload_guard.py           MultiFirm の書込保護
 tools/preview/                  画面を PNG に描画するホスト用ハーネス
+sim/                            PC シミュレータ用の差し替え（NVS・RTC・ネットワーク、エントリポイント）
 ```
+
+## PC シミュレータ（native + SDL2）
+
+StopWatch の画面と操作を Windows 上のウィンドウ（466×466）で動かせる。
+
+準備（初回のみ）: MSYS2 の UCRT64 に g++ と SDL2 を入れる。
+
+```powershell
+C:\msys64\usr\bin\bash.exe -lc "pacman -S --needed mingw-w64-ucrt-x86_64-gcc mingw-w64-ucrt-x86_64-SDL2"
+```
+
+```powershell
+pio run -e native                        # ビルド
+pio run -e native -t exec                # 実行
+.pio\build\native\program.exe --demo     # サンプルイベントを入れて実行（保存済みイベントを置き換える）
+```
+
+| 実機 | シミュレータ |
+|---|---|
+| タッチ | マウス左ボタン（中央を 1.5 秒押し続けると設定） |
+| KEY A | ← または A キー |
+| KEY B | ↓ または B キー（A+B の同時押しも可） |
+
+- `--demo` は 4 件のサンプル（うち 1 件は起動 90 秒後に到達、1 件は無効）を書き込む。最終カウントダウンや到達表示の確認用。
+- NVS と RTC は作業フォルダの `sim_data/` に保存される（消すと初期状態）。RTC は最初 PC の UTC 時刻を持つ。
+- Wi-Fi・Web 設定・NTP・Launcher 連携は動かない（`sim/` の差し替え部品）。WEB CONFIG 画面は表示だけ確認できる。
+- `tools/native_env.py` が `C:\msys64\ucrt64\bin` を PATH の先頭に足す（Git for Windows の mingw64 などとの DLL 衝突を避けるため）。
+  別の場所なら環境変数 `MSYS2_UCRT64_BIN` で指定する。
 
 ## テスト
 
