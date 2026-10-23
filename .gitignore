@@ -1,0 +1,4 @@
+.pio/
+.vscode/
+# 仕様書・デザインキット（84 MB、画像と ZIP）はリポジトリに含めない
+M5StopWatchi_CountDown_Design_Kit/
