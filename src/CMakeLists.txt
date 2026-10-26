@@ -1,5 +1,6 @@
 # PlatformIO supplies the lib_deps include paths and libraries (M5Unified,
-# M5GFX, ArduinoJson, MultiFirm). The env:native simulator does not use this file.
+# M5GFX, ArduinoJson; MultiFirm only for env:m5stopwatch-launcher).
+# The env:native simulator does not use this file.
 idf_component_register(SRCS "main.cpp" "app/App.cpp"
     "core/ClockService.cpp" "core/CountdownEngine.cpp" "core/DateEditor.cpp" "core/EventRepository.cpp"
     "core/SyncScheduler.cpp" "core/Utf8.cpp"

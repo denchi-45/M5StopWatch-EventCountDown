@@ -11,11 +11,12 @@
 - 最大 10 件のイベントを登録し、ボタンで切り替えて表示（日数 + HH:MM:SS の 7 セグ表示と 52 区画の進捗リング）
 - イベントの登録・時刻合わせ・Wi-Fi 設定は、本体の Wi-Fi アクセスポイントにスマホ / PC から接続して Web 画面で行う
 - 家庭用 Wi-Fi を登録すると NTP で自動的に時刻を補正
-- [wararyoLauncher](https://github.com/wararyo/M5StopWatch-wararyoLauncher)（[M5StopWatch-MultiFirm](https://github.com/wararyo/M5StopWatch-MultiFirm)）の
-  **ゲストアプリ**として動作。Launcher を入れていない本体に単体で書き込むこともできる
+
+[wararyoLauncher](https://github.com/wararyo/M5StopWatch-wararyoLauncher) のゲストアプリとして入れることもできます
+（→ [docs/LAUNCHER.md](docs/LAUNCHER.md)）。この README は単体で使う場合の手順です。
 
 > [!WARNING]
-> 現在の ESP-IDF 版は**実機での動作確認がまだ済んでいません**（ビルド・ユニットテスト・PC シミュレータでの描画確認のみ）。
+> **実機での動作確認がまだ済んでいません**（ビルド・ユニットテスト・PC シミュレータでの描画確認のみ）。
 > 詳細は [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md#検証結果2026-10-24esp-idf-移行後) を参照してください。
 
 ## 必要なもの
@@ -24,82 +25,15 @@
 |---|---|
 | 本体 | M5StopWatch（ESP32-S3、466×466 円形 AMOLED、16 MB Flash） |
 | ケーブル | データ通信できる USB-C ケーブル |
-| ビルド | [PlatformIO](https://platformio.org/)（VS Code 拡張または PlatformIO Core CLI）。ESP-IDF 5.5 とライブラリは初回ビルド時に自動で取得される（Releases の bin を使う場合は不要） |
-| 書き込み（Launcher 導入機） | Python 3.11 + esptool 4.12.0（[M5StopWatch-MultiFirm](https://github.com/wararyo/M5StopWatch-MultiFirm) の PC ツールが使う） |
+| 書き込み | Releases の bin を使う場合: Python 3 と [esptool](https://github.com/espressif/esptool)（v5 以降）<br>ソースからビルドする場合: [PlatformIO](https://platformio.org/)（VS Code 拡張または PlatformIO Core CLI。ESP-IDF 5.5 とライブラリは初回ビルド時に自動で取得される） |
 
-## ダウンロード（ビルドしない場合）
+> [!CAUTION]
+> 書き込みは**フラッシュ全体の配置（ブートローダ・パーティション表・アプリ）を上書き**します。本体に入っていた
+> ファームウェア（wararyoLauncher を含む）は消えます。Launcher と共存させたい場合は [docs/LAUNCHER.md](docs/LAUNCHER.md) の手順を使ってください。
 
-Launcher 導入済みの本体に入れるだけなら、ビルドせずに [Releases](https://github.com/denchi-45/M5StopWatch_Coundown/releases)
-の `firmware.bin`（ゲストスロット用）を使えます。
+### シリアルポート
 
-1. [Releases](https://github.com/denchi-45/M5StopWatch_Coundown/releases) から使いたい版を開き、Assets の `firmware.bin` をダウンロードします。
-2. リリースノートの SHA-256 と一致するか確認します。
-
-   ```powershell
-   Get-FileHash "$HOME\Downloads\firmware.bin" -Algorithm SHA256   # Windows
-   ```
-
-   ```sh
-   shasum -a 256 ~/Downloads/firmware.bin                          # macOS
-   sha256sum ~/Downloads/firmware.bin                              # Linux
-   ```
-
-3. 下の「[A. Launcher 導入済みの本体](#a-launcher-導入済みの本体ゲストスロットに入れる)」の手順で書き込みます
-   （`$bin` / `bin` をダウンロードしたファイルのパスにします）。
-
-Releases の bin はゲストスロット専用です。Launcher を使わない本体（B）には、下の手順でソースからビルドして書き込んでください。
-
-## ビルド
-
-```sh
-git clone https://github.com/denchi-45/M5StopWatch_Coundown.git
-cd M5StopWatch_Coundown
-pio run                      # = pio run -e m5stopwatch（MultiFirm ゲスト用）
-```
-
-成果物は `.pio/build/m5stopwatch/firmware.bin` です（初回は ESP-IDF などのダウンロードで時間がかかります）。
-
-| 環境 | 用途 |
-|---|---|
-| `m5stopwatch`（既定） | Launcher のゲストスロット用。`-t upload` は使えない（下記） |
-| `m5stopwatch-standalone` | Launcher を入れていない本体に直接書き込む用 |
-| `native` | PC シミュレータ（[docs/DEVELOPMENT.md](docs/DEVELOPMENT.md#pc-シミュレータnative--sdl2)） |
-
-> [!NOTE]
-> 既定の環境では **`pio run -t upload` / `erase` / `uploadfs` は意図的にエラーになります。** 通常の書き込みは
-> Launcher・共存用パーティション表・他のアプリを上書きしてしまうためです（`tools/upload_guard.py`）。
-> また firmware.bin がゲストスロットの上限（0x1F0000 = 2,031,616 bytes）を超えるとビルドエラーになります。
-
-## 書き込み
-
-本体に wararyoLauncher が入っているかどうかで手順が変わります。
-
-### A. Launcher 導入済みの本体（ゲストスロットに入れる）
-
-本体はあらかじめ MultiFirm v1 の配置になっている（wararyoLauncher が入っている）必要があります。
-Launcher の導入方法は [wararyoLauncher](https://github.com/wararyo/M5StopWatch-wararyoLauncher) と
-[MultiFirm のツール説明](https://github.com/wararyo/M5StopWatch-MultiFirm/blob/master/tools/README.md) を参照してください。
-
-**1. MultiFirm の PC ツールを準備する（初回のみ）**
-
-このリポジトリと同じ階層に clone します（Releases の bin だけを使う場合は任意の場所で構いません）。
-
-```powershell
-cd ..
-git clone https://github.com/wararyo/M5StopWatch-MultiFirm.git
-cd M5StopWatch-MultiFirm
-py -3.11 -m venv tools\.venv
-tools\.venv\Scripts\python.exe -m pip install -r tools\requirements.txt
-```
-
-macOS / Linux:
-
-```sh
-python3.11 -m venv tools/.venv
-tools/.venv/bin/python -m pip install -r tools/requirements.txt
-```
-
-**2. シリアルポートを確認する**
+USB で接続した M5StopWatch のシリアルポートを確認します。
 
 | OS | 例 | 探し方 |
 |---|---|---|
@@ -107,53 +41,68 @@ tools/.venv/bin/python -m pip install -r tools/requirements.txt
 | macOS | `/dev/cu.usbmodem1101` | `ls /dev/cu.usbmodem*` |
 | Linux | `/dev/ttyACM0` | `ls /dev/ttyACM*`（権限がなければ `dialout` グループに追加） |
 
-**3. ゲストスロットに書き込む**
+以下の例の `COM11` は、環境に合わせて読み替えてください。
 
-EventCountDown のフォルダで実行します（`COM11` とスロット番号 `2` は環境に合わせて変更。スロットは 1〜3）。
-Releases からダウンロードした bin を使う場合は、`$bin` / `bin` をそのファイルのパス
-（Windows の例: `$HOME\Downloads\firmware.bin`、macOS / Linux の例: `$HOME/Downloads/firmware.bin`）に、
-`$mf` / `mf` を M5StopWatch-MultiFirm を clone した場所に合わせてください。
+## 書き込み（Releases の bin を使う）
 
-```powershell
-$mf = "..\M5StopWatch-MultiFirm\tools\multifirm.ps1"
-$bin = ".pio\build\m5stopwatch\firmware.bin"
-# 1) 計画を表示（実機に接続しない）
-& $mf install --slot 2 $bin --name "EventCountDown" --port COM11
-# 2) 実機を読み取って確認（書き込まない）
-& $mf install --slot 2 $bin --name "EventCountDown" --port COM11 --check-device
-# 3) 書き込む
-& $mf install --slot 2 $bin --name "EventCountDown" --port COM11 --execute
-```
+ビルドせずに書き込めます。
 
-macOS / Linux:
+1. esptool を入れます（初回のみ）。
+
+   ```sh
+   pip install esptool
+   ```
+
+2. [Releases](https://github.com/denchi-45/M5StopWatch_Coundown/releases) から使いたい版を開き、Assets の
+   `EventCountDown-<版>-standalone.bin` をダウンロードします。
+3. リリースノートの SHA-256 と一致するか確認します。
+
+   ```powershell
+   Get-FileHash "$HOME\Downloads\EventCountDown-v0.1.0-standalone.bin" -Algorithm SHA256   # Windows
+   ```
+
+   ```sh
+   shasum -a 256 ~/Downloads/EventCountDown-v0.1.0-standalone.bin   # macOS
+   sha256sum ~/Downloads/EventCountDown-v0.1.0-standalone.bin       # Linux
+   ```
+
+4. 元に戻したい場合に備えて、16 MB 全体をバックアップしておくことをおすすめします（数分かかります）。
+
+   ```sh
+   esptool --chip esp32s3 --port COM11 read-flash 0 0x1000000 backup.bin
+   ```
+
+5. アドレス `0x0` に書き込みます。終わったら本体をリセット（電源を入れ直す）してください。
+
+   ```sh
+   esptool --chip esp32s3 --port COM11 write-flash 0x0 EventCountDown-v0.1.0-standalone.bin
+   ```
+
+`standalone.bin` はブートローダ・パーティション表・アプリを 1 つにまとめたイメージです。
+同じリリースの `launcher.bin` は wararyoLauncher 用なので、この手順には使いません。
+
+## 書き込み（ソースからビルドする）
 
 ```sh
-mf=../M5StopWatch-MultiFirm/tools/multifirm.sh
-bin=.pio/build/m5stopwatch/firmware.bin
-$mf install --slot 2 $bin --name "EventCountDown" --port /dev/ttyACM0
-$mf install --slot 2 $bin --name "EventCountDown" --port /dev/ttyACM0 --check-device
-$mf install --slot 2 $bin --name "EventCountDown" --port /dev/ttyACM0 --execute
+git clone https://github.com/denchi-45/M5StopWatch_Coundown.git
+cd M5StopWatch_Coundown
+pio run -t upload                           # ビルドして書き込む（ポートは自動検出）
+pio run -t upload --upload-port COM11       # ポートを指定する場合
 ```
 
-- 指定したスロットに入っていたアプリは上書きされます。他のスロット・設定（NVS）・起動先は変わりません。
-- 書き込み後は Launcher が起動するので、一覧から **EventCountDown** を選んでください。
-- 実機なしでの検査: `python ..\M5StopWatch-MultiFirm\tools\multifirm.py inspect .pio\build\m5stopwatch\firmware.bin`
-- ゲストから戻れなくなったときは `multifirm.ps1 recover --port COM11 --execute`（詳細は MultiFirm のツール説明）。
+初回は ESP-IDF などのダウンロードで時間がかかります。ビルドだけなら `pio run` です。
 
-### B. Launcher を使わない本体（単体で書き込む）
-
-> [!CAUTION]
-> **フラッシュ全体の配置（ブートローダ・パーティション表）を上書きします。** Launcher 導入機には使わないでください。
-> 元に戻したい場合に備えて、先に 16 MB 全体のバックアップを取っておくことをおすすめします。
->
-> ```sh
-> pio pkg exec -p "platformio/tool-esptoolpy@~2.40900.0" -- esptool.py --chip esp32s3 --port COM11 read_flash 0 0x1000000 backup.bin
-> ```
+書き込む前に 16 MB 全体をバックアップする場合は、PlatformIO に入っている esptool（4.9）を使って次のようにします。
 
 ```sh
-pio run -e m5stopwatch-standalone -t upload                  # ポートは自動検出
-pio run -e m5stopwatch-standalone -t upload --upload-port COM11   # ポートを指定する場合
+pio pkg exec -p "platformio/tool-esptoolpy@~2.40900.0" -- esptool.py --chip esp32s3 --port COM11 read_flash 0 0x1000000 backup.bin
 ```
+
+| 環境 | 用途 |
+|---|---|
+| `m5stopwatch`（既定） | 単体で動かすファームウェア |
+| `m5stopwatch-launcher` | wararyoLauncher のゲストスロット用（[docs/LAUNCHER.md](docs/LAUNCHER.md)） |
+| `native` | PC シミュレータ（[docs/DEVELOPMENT.md](docs/DEVELOPMENT.md#pc-シミュレータnative--sdl2)） |
 
 ### シリアルログ
 
@@ -181,25 +130,18 @@ pio device monitor -b 115200 -p COM11
 | カウントダウン | KEY A 短押し / KEY B 短押し | 前 / 次の有効イベント（循環、2 秒後に保存） |
 | カウントダウン | 画面中央を 1.5 秒長押し | 設定メニュー |
 | カウントダウン（タッチなし機種） | KEY B 1.5 秒長押し | 設定メニュー |
-| どこでも | KEY A+B 1.6 秒長押し | Launcher に戻る（ゲスト時。アプリ側の操作は発火しない） |
-| 電源投入時 | KEY B を押しながら起動 | アプリを起動せず Launcher へ |
 | 設定画面 | タップ | 項目選択・実行、＋/− |
 | 設定画面 | A / B 短押し | 前 / 次の項目（編集中は値の減 / 増） |
 | 設定画面 | B 1.5 秒長押し | 開く・実行・編集開始 / 編集値の確定 |
 | 設定画面 | A 1.5 秒長押し | 戻る（未保存は破棄） / 編集値の取り消し |
 
 減光中の最初の短押し・タップは画面を起こすだけで、操作としては扱いません。
-
-### Launcher への戻り方
-
-1. どの画面でも **KEY A + KEY B を 1.6 秒押し続ける**（途中で画面に触れると取り消し）。
-2. 起動しない・固まったなどのときは **KEY B を押しながら電源を入れる**（M5 の初期化前に Launcher へ戻る）。
+Launcher に入れた場合の追加の操作（Launcher への戻り方）は [docs/LAUNCHER.md](docs/LAUNCHER.md#launcher-への戻り方) にあります。
 
 ## 既知の制限
 
 - 表示・イベントのタイムゾーンは `Asia/Tokyo` と `UTC` のみ。
 - 対応機種は M5StopWatch のみ（長方形画面の配置も持っているが、ESP32 機種は依存ライブラリの都合でビルドできない）。
-- Launcher への初回導入やパーティション変更で、保存した設定・イベントが消える場合があります（MultiFirm の仕様）。
 
 その他の設計上の注意、ソース構成、PC シミュレータ、テストの実行方法は [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) にあります。
 
@@ -207,5 +149,5 @@ pio device monitor -b 115200 -p COM11
 
 [MIT License](LICENSE)
 
-依存ライブラリ（M5Unified / M5GFX / ArduinoJson / M5StopWatch-MultiFirm / ESP-IDF）はそれぞれのライセンスに従います。
+依存ライブラリ（M5Unified / M5GFX / ArduinoJson / ESP-IDF、Launcher 版では M5StopWatch-MultiFirm）はそれぞれのライセンスに従います。
 `tools/upload_guard.py` は M5StopWatch-MultiFirm の配布物のコピーです。
