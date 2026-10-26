@@ -1,0 +1,348 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>EventCountDown Setup</title>
+<style>
+:root{--bg:#0a0d14;--bar:#111722;--card:#121924;--line:#2a3342;--text:#f4f7fa;--dim:#9aa3b2;--red:#ff4145;--redbtn:#a3242f;--blue:#3f668f;--green:#5ee09a;--amber:#ffb547;--input:#0c111a}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font:16px/1.45 system-ui,-apple-system,"Segoe UI","Noto Sans JP",sans-serif}
+header{background:var(--bar);padding:14px 16px;display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:6px}
+header h1{margin:0;font-size:22px;letter-spacing:.02em}
+#conn{font-weight:700;font-size:13px;color:var(--green)}
+#conn.off{color:var(--amber)}
+nav{display:flex;flex-wrap:wrap;gap:6px;padding:10px 16px;background:var(--bar);border-top:1px solid var(--line)}
+nav button{flex:1 1 auto;min-width:70px}
+nav button.cur{border-color:var(--red);color:var(--red)}
+#exit{background:transparent;border-color:var(--amber);color:var(--amber)}
+main{max-width:720px;margin:0 auto;padding:16px}
+h2{font-size:26px;margin:8px 0 2px}
+.sub{color:var(--dim);margin:0 0 16px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px 16px;margin:0 0 12px}
+.lbl{font-size:12px;font-weight:700;color:var(--dim);letter-spacing:.06em;text-transform:uppercase}
+.mono{font-family:ui-monospace,Menlo,Consolas,monospace}
+.big{font-size:26px}
+button{font:inherit;font-weight:700;font-size:14px;color:var(--text);background:#1b2230;border:1px solid var(--line);border-radius:8px;padding:9px 12px;cursor:pointer}
+button:disabled{opacity:.4;cursor:default}
+.primary{background:var(--redbtn);border-color:var(--red);width:100%;padding:13px;font-size:16px}
+.secondary{background:var(--blue);border-color:#5b84b1;width:100%;padding:13px;font-size:16px}
+.pill{border-radius:999px;padding:5px 14px;font-size:13px;background:#2a1418}
+.pill.sel{color:var(--red);border-color:var(--red)}
+.pill.ok{color:var(--green);border-color:var(--green)}
+.row{display:flex;gap:10px;align-items:flex-start}
+.row .num{color:var(--red);font-weight:700;min-width:26px;padding-top:2px}
+.row .body{flex:1;min-width:0}
+.name{font-size:19px;overflow-wrap:anywhere}
+.when{color:var(--dim);font-size:14px}
+.acts{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}
+.off .name{color:var(--dim)}
+label{display:block;margin:12px 0 4px;font-size:13px;color:var(--dim);font-weight:700}
+input,select{width:100%;font:inherit;color:var(--text);background:var(--input);border:1px solid var(--line);border-radius:8px;padding:10px}
+input[type=checkbox]{width:auto;transform:scale(1.3);margin-right:8px}
+.check{display:flex;align-items:center;margin-top:12px;color:var(--text);font-weight:400}
+.stack>*+*{margin-top:10px}
+#msg{position:sticky;top:0;z-index:5;display:none;padding:10px 16px;font-weight:700}
+#msg.ok{display:block;background:#123526;color:var(--green)}
+#msg.err{display:block;background:#3a1518;color:#ffb3b3}
+#apwarn{display:none;background:#3a2a10;color:var(--amber);padding:8px 16px;font-weight:700}
+.note{color:var(--dim);font-size:13px}
+.warn{color:var(--amber);font-size:13px;font-weight:700}
+.danger{background:transparent;border-color:var(--red);color:var(--red)}
+.hidden{display:none}
+</style>
+</head>
+<body>
+<header><h1>EVENT COUNTDOWN</h1><span id="conn">DEVICE • CONNECTING</span></header>
+<nav>
+  <button data-page="events">EVENTS</button>
+  <button data-page="device">DEVICE</button>
+  <button data-page="time">TIME</button>
+  <button data-page="wifi">WI-FI</button>
+  <button id="exit">EXIT SETUP</button>
+</nav>
+<div id="apwarn"></div>
+<div id="msg"></div>
+<main>
+<section id="p-events">
+  <h2>EVENTS</h2><p class="sub">Select, create and edit your event countdowns.</p>
+  <div class="card"><div class="lbl">Active event</div><div id="active" class="name">—</div></div>
+  <div id="list"></div>
+  <button class="primary" id="add">+ ADD EVENT</button>
+  <p class="note">MAX 10 EVENTS • Settings saved in device NVS</p>
+  <p class="warn" id="cfgerr"></p>
+</section>
+
+<section id="p-edit" class="hidden">
+  <h2 id="edTitle">ADD EVENT</h2><p class="sub">Dates are entered in the event's time zone and stored as UTC.</p>
+  <div class="card">
+    <label for="fName">EVENT NAME (max 48 characters)</label><input id="fName" maxlength="200" autocomplete="off">
+    <label for="fTz">EVENT TIME ZONE</label>
+    <select id="fTz"><option value="Asia/Tokyo">Asia/Tokyo (JST, UTC+09:00)</option><option value="UTC">UTC</option></select>
+    <label for="fStart">COUNTDOWN START</label><input id="fStart" type="datetime-local" step="1">
+    <label for="fTarget">EVENT START</label><input id="fTarget" type="datetime-local" step="1">
+    <label class="check"><input id="fEnabled" type="checkbox" checked>Enabled</label>
+  </div>
+  <div class="stack">
+    <button class="primary" id="saveEv">SAVE EVENT</button>
+    <button id="cancelEv" style="width:100%">CANCEL</button>
+    <button class="danger" id="delEv" style="width:100%">DELETE</button>
+  </div>
+</section>
+
+<section id="p-device" class="hidden">
+  <h2>DEVICE</h2><p class="sub">Display, notification and clock options.</p>
+  <div class="card">
+    <label for="sBright">SCREEN BRIGHTNESS <span id="sBrightV"></span></label><input id="sBright" type="range" min="5" max="100" step="5">
+    <label for="sDim">DIM AFTER</label>
+    <select id="sDim"><option value="10">10 s</option><option value="30">30 s</option><option value="60">1 min</option><option value="120">2 min</option><option value="300">5 min</option><option value="0">Never</option></select>
+    <label class="check"><input id="sSound" type="checkbox">Notification sound</label>
+    <label class="check"><input id="sVib" type="checkbox">Vibration</label>
+    <label class="check"><input id="sUsb" type="checkbox">Keep screen on while USB powered</label>
+    <label for="sTz">DISPLAY TIME ZONE</label>
+    <select id="sTz"><option value="Asia/Tokyo">Asia/Tokyo (JST)</option><option value="UTC">UTC</option></select>
+    <label class="check"><input id="sNtp" type="checkbox">Automatic NTP correction (home Wi-Fi)</label>
+    <label for="sNtpSrv">NTP SERVER</label><input id="sNtpSrv" autocomplete="off">
+    <label for="sRtc">RTC INTERPRETATION</label>
+    <select id="sRtc"><option value="UTC">UTC (recommended)</option><option value="LOCAL_JST">LOCAL JST (compatibility)</option></select>
+    <p class="note" id="rtcPrev"></p>
+  </div>
+  <button class="primary" id="saveDev">SAVE SETTINGS</button>
+</section>
+
+<section id="p-time" class="hidden">
+  <h2>TIME &amp; SYNC</h2><p class="sub">Review the device clock or synchronize from your phone.</p>
+  <div class="card">
+    <div class="lbl">Current device clock</div>
+    <div class="mono big" id="devNow">—</div>
+    <div class="note" id="clkInfo"></div>
+  </div>
+  <div class="card stack">
+    <div class="lbl">Phone / PC clock</div>
+    <div class="mono" id="phoneNow">—</div>
+    <button class="secondary" id="syncPhone">SYNC FROM PHONE / PC</button>
+  </div>
+  <div class="card stack">
+    <div class="lbl">Set manual time (<span id="manTz"></span>)</div>
+    <input id="manual" type="datetime-local" step="1">
+    <button class="primary" id="setManual">SET TIME ON DEVICE</button>
+  </div>
+  <div class="card stack">
+    <div class="lbl">NTP</div>
+    <div id="ntpInfo"></div>
+    <button id="syncNtp" style="width:100%">SYNC NTP</button>
+    <p class="note">NTP needs the home Wi-Fi (station mode) and internet. Phone sync works offline over this access point.</p>
+  </div>
+</section>
+
+<section id="p-wifi" class="hidden">
+  <h2>WI-FI</h2><p class="sub">Home Wi-Fi used only for NTP time correction.</p>
+  <div class="card">
+    <div class="lbl">Status</div><div id="wState">—</div>
+    <label for="wSsid">SSID</label><input id="wSsid" maxlength="32" autocomplete="off">
+    <label for="wPass">PASSWORD</label><input id="wPass" type="password" autocomplete="new-password" placeholder="(unchanged)">
+    <label class="check"><input id="wClear" type="checkbox">Forget stored password</label>
+  </div>
+  <button class="primary" id="saveWifi">SAVE &amp; CONNECT</button>
+  <p class="note">The stored password is never sent back to the browser. Saving and connecting are separate: the connection result appears in Status.</p>
+</section>
+
+<section id="p-bye" class="hidden">
+  <h2>SETUP CLOSED</h2><p class="sub">The access point has been turned off. You can disconnect from it now.</p>
+</section>
+</main>
+<script>
+"use strict";
+const $=id=>document.getElementById(id);
+const TZ={"Asia/Tokyo":540,"UTC":0},TZS={"Asia/Tokyo":"JST","UTC":"UTC"};
+let token="",events=[],selected=null,status=null,editing=null,lastAct=0,closed=false,prevTok="";
+const pad=n=>String(n).padStart(2,"0");
+
+function show(t,err){const m=$("msg");m.textContent=t;m.className=err?"err":"ok";clearTimeout(show.t);show.t=setTimeout(()=>{m.className=""},4000)}
+async function api(method,path,body){
+  const o={method,headers:{}};
+  if(method!=="GET")o.headers["X-CD-Session"]=token;
+  if(body!==undefined){o.headers["Content-Type"]="application/json";o.body=JSON.stringify(body)}
+  let r;
+  try{r=await fetch(path,o)}catch(e){throw new Error("Device unreachable. Reconnect to the device Wi-Fi.")}
+  let j={};try{j=await r.json()}catch(e){}
+  if(!r.ok&&r.status!==202){const e=new Error(j.error||("HTTP "+r.status));e.status=r.status;e.body=j;throw e}
+  return j;
+}
+// Local wall time in an explicit zone (never the browser's own TZ).
+function localToUtc(s,tz){
+  const m=/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2}))?$/.exec(s||"");if(!m)return null;
+  const [y,mo,d,h,mi,se]=[+m[1],+m[2],+m[3],+m[4],+m[5],+(m[6]||0)];
+  const ms=Date.UTC(y,mo-1,d,h,mi,se),c=new Date(ms);
+  if(c.getUTCFullYear()!==y||c.getUTCMonth()!==mo-1||c.getUTCDate()!==d||h>23||mi>59||se>59)return null;
+  return Math.floor(ms/1000)-TZ[tz]*60;
+}
+function utcToLocal(sec,tz){return new Date((sec+TZ[tz]*60)*1000).toISOString().slice(0,19)}
+const fmt=(sec,tz)=>utcToLocal(sec,tz).replace("T"," ")+" "+TZS[tz];
+
+function page(p){
+  for(const s of document.querySelectorAll("main>section"))s.classList.add("hidden");
+  $("p-"+p).classList.remove("hidden");
+  for(const b of document.querySelectorAll("nav button[data-page]"))b.classList.toggle("cur",b.dataset.page===p||(p==="edit"&&b.dataset.page==="events"));
+  if(p==="device")loadSettings();if(p==="wifi")loadWifi();if(p==="time")renderTime();
+}
+// AP idle timer: only real user actions extend it, at most every 30 s.
+function activity(){const n=Date.now();if(token&&!closed&&n-lastAct>30000){lastAct=n;api("POST","/api/session/activity").catch(()=>{})}}
+for(const ev of ["click","input","keydown","touchstart"])document.addEventListener(ev,activity,{passive:true});
+
+function el(tag,cls,text){const e=document.createElement(tag);if(cls)e.className=cls;if(text!==undefined)e.textContent=text;return e}
+async function loadEvents(){
+  const j=await api("GET","/api/events");events=j.events;selected=j.selectedEventId;renderEvents();
+}
+function renderEvents(){
+  const list=$("list");list.replaceChildren();
+  const cur=events.find(e=>e.id===selected);$("active").textContent=cur?cur.name:"No event selected";
+  if(!events.length){const c=el("div","card note","No events yet. Tap ADD EVENT to create your first countdown.");list.append(c)}
+  events.forEach((e,i)=>{
+    const c=el("div","card"+(e.enabled?"":" off")),r=el("div","row");
+    r.append(el("div","num",pad(i+1)));
+    const b=el("div","body");b.append(el("div","name",e.name),el("div","when mono",fmt(e.targetUtc,e.timezone)+(e.enabled?"":" • DISABLED")));
+    const a=el("div","acts");
+    const ch=el("button","pill "+(e.id===selected?"sel":""),e.id===selected?"SELECTED":"CHOOSE");
+    ch.disabled=!e.enabled||e.id===selected;ch.onclick=()=>choose(e.id);
+    const ed=el("button","pill","EDIT");ed.onclick=()=>openEditor(e);
+    const up=el("button","pill","▲ MOVE UP");up.disabled=i===0;up.onclick=()=>move(i,-1);
+    const dn=el("button","pill","▼ MOVE DOWN");dn.disabled=i===events.length-1;dn.onclick=()=>move(i,1);
+    a.append(ch,ed,up,dn);b.append(a);r.append(b);c.append(r);list.append(c);
+  });
+  $("add").disabled=events.length>=10;
+}
+async function choose(id){try{await api("PUT","/api/selection",{id});show("Selected");await loadEvents()}catch(e){show(e.message,1)}}
+async function move(i,d){
+  const ids=events.map(e=>e.id);[ids[i],ids[i+d]]=[ids[i+d],ids[i]];
+  try{await api("PUT","/api/events/order",{ids});await loadEvents()}catch(e){show(e.message,1)}
+}
+function openEditor(e){
+  editing=e||null;$("edTitle").textContent=e?"EDIT EVENT":"ADD EVENT";$("delEv").classList.toggle("hidden",!e);
+  const tz=e?e.timezone:"Asia/Tokyo";$("fTz").value=tz;$("fName").value=e?e.name:"";
+  $("fStart").value=e?utcToLocal(e.startUtc,tz):"";$("fTarget").value=e?utcToLocal(e.targetUtc,tz):"";
+  $("fEnabled").checked=e?e.enabled:true;page("edit");
+}
+// Changing only the zone keeps the same instants (re-displayed in the new zone).
+$("fTz").addEventListener("focus",function(){this.dataset.prev=this.value});
+$("fTz").addEventListener("change",function(){
+  const prev=this.dataset.prev||"Asia/Tokyo",tz=this.value;
+  for(const id of ["fStart","fTarget"]){const u=localToUtc($(id).value,prev);if(u!==null)$(id).value=utcToLocal(u,tz)}
+  this.dataset.prev=tz;
+});
+$("add").onclick=()=>openEditor(null);
+$("cancelEv").onclick=()=>page("events");
+$("saveEv").onclick=async()=>{
+  const name=$("fName").value.trim(),tz=$("fTz").value;
+  if(!name)return show("Name is required",1);
+  if([...name].length>48||new TextEncoder().encode(name).length>192)return show("Name is too long (max 48 characters)",1);
+  const s=localToUtc($("fStart").value,tz),t=localToUtc($("fTarget").value,tz);
+  if(s===null||t===null)return show("Enter valid start and event dates",1);
+  if(s>=t)return show("Countdown start must be before the event",1);
+  const body={name,startUtc:s,targetUtc:t,timezone:tz,enabled:$("fEnabled").checked};
+  try{
+    if(editing)await api("PUT","/api/events/"+encodeURIComponent(editing.id),body);
+    else await api("POST","/api/events",body);
+    show("Event saved");await loadEvents();page("events");
+  }catch(e){show(e.message,1)}
+};
+$("delEv").onclick=async()=>{
+  if(!editing||!confirm("Delete \""+editing.name+"\"? This cannot be undone."))return;
+  try{await api("DELETE","/api/events/"+encodeURIComponent(editing.id));show("Event deleted");await loadEvents();page("events")}catch(e){show(e.message,1)}
+};
+
+let settings=null;
+async function loadSettings(){
+  try{settings=await api("GET","/api/settings")}catch(e){return show(e.message,1)}
+  $("sBright").value=settings.brightness;$("sBrightV").textContent=settings.brightness+"%";
+  $("sDim").value=String(settings.dimAfterSec);$("sSound").checked=settings.soundEnabled;$("sVib").checked=settings.vibrationEnabled;
+  $("sSound").disabled=!settings.capabilities.sound;$("sVib").disabled=!settings.capabilities.vibration;
+  $("sUsb").checked=settings.keepAwakeOnUsb;$("sTz").value=settings.timezone;$("sNtp").checked=settings.ntpEnabled;
+  $("sNtpSrv").value=settings.ntpServer;$("sRtc").value=settings.rtcInterpretation;$("rtcPrev").textContent="";prevTok="";
+}
+$("sBright").oninput=()=>{$("sBrightV").textContent=$("sBright").value+"%"};
+$("sRtc").onchange=async()=>{
+  prevTok="";const mode=$("sRtc").value;
+  if(!settings||mode===settings.rtcInterpretation){$("rtcPrev").textContent="";return}
+  try{const p=await api("POST","/api/rtc/preview",{mode});prevTok=p.previewToken;
+    $("rtcPrev").textContent="Reinterprets the value stored in the RTC (it is not rewritten). Now: "+(p.before||"not set")+" → After: "+p.after+" "+p.timezone+". Confirm within 60 s by saving. Verify again after returning from the Launcher.";
+  }catch(e){show(e.message,1)}
+};
+$("saveDev").onclick=async()=>{
+  const body={brightness:+$("sBright").value,dimAfterSec:+$("sDim").value,soundEnabled:$("sSound").checked,vibrationEnabled:$("sVib").checked,
+    keepAwakeOnUsb:$("sUsb").checked,timezone:$("sTz").value,ntpEnabled:$("sNtp").checked,ntpServer:$("sNtpSrv").value.trim()};
+  if($("sRtc").value!==settings.rtcInterpretation){
+    if(!confirm("Change RTC interpretation to "+$("sRtc").value+"? The displayed time will change accordingly."))return;
+    body.rtcInterpretation=$("sRtc").value;body.previewToken=prevTok;
+  }
+  try{const r=await api("PUT","/api/settings",body);
+    show(r&&r.clockFollowed===false?"Settings saved. The RTC value is not trustworthy, so the current time was kept.":"Settings saved");
+    await loadSettings();await loadEvents()}
+  catch(e){if(e.status===409){show(e.message,1);$("sRtc").onchange()}else show(e.message,1)}
+};
+
+function renderTime(){
+  const tz=status?status.timezone:"Asia/Tokyo";$("manTz").textContent=TZS[tz];
+  if(status){
+    $("devNow").textContent=status.clockValid?fmt(status.nowUtc,tz):"TIME NOT SET";
+    $("clkInfo").textContent="Source: "+status.clockSource+" • RTC: "+(status.rtcAvailable?(status.rtcValid?"valid":"invalid"):"none")+" ("+status.rtcInterpretation+", last write "+status.rtcWriteStatus+")";
+    const n=status.ntp;$("ntpInfo").textContent="Status: "+n.state+" • Last sync: "+(n.lastNtpSuccessUtc?fmt(n.lastNtpSuccessUtc,tz):"never")+(n.lastNtpError?" • Last error: "+n.lastNtpError:"");
+  }
+  $("phoneNow").textContent=fmt(Math.floor(Date.now()/1000),tz);
+  if(!$("manual").value&&status&&status.clockValid)$("manual").value=utcToLocal(status.nowUtc,tz);
+}
+$("syncPhone").onclick=async()=>{
+  const tz=status?status.timezone:"Asia/Tokyo";
+  if(!confirm("Set the device clock to this phone/PC time?\n"+fmt(Math.floor(Date.now()/1000),tz)))return;
+  try{const r=await api("POST","/api/time",{epochMs:Date.now(),source:"BROWSER"});
+    show(r.partial?"Clock set, but writing the RTC failed ("+r.rtcWriteStatus+")":"Device clock set from this phone/PC",r.partial);await poll()}catch(e){show(e.message,1)}
+};
+$("setManual").onclick=async()=>{
+  const tz=status?status.timezone:"Asia/Tokyo",u=localToUtc($("manual").value,tz);
+  if(u===null)return show("Enter a valid date and time",1);
+  if(!confirm("Set the device clock to "+fmt(u,tz)+"?"))return;
+  try{const r=await api("POST","/api/time",{epochMs:u*1000,source:"MANUAL"});
+    show(r.partial?"Clock set, but writing the RTC failed":"Device clock set",r.partial);await poll()}catch(e){show(e.message,1)}
+};
+$("syncNtp").onclick=async()=>{
+  try{const r=await api("POST","/api/ntp/sync");show("NTP "+r.result.toLowerCase())}
+  catch(e){show(e.body&&e.body.result==="DISABLED"?"NTP is disabled in DEVICE settings":e.body&&e.body.result==="OFFLINE"?"Home Wi-Fi is not connected":e.message,1)}
+  await poll();
+};
+
+async function loadWifi(){
+  try{const w=await api("GET","/api/wifi");$("wSsid").value=w.ssid;$("wPass").value="";$("wClear").checked=false;
+    $("wPass").placeholder=w.passwordConfigured?"(unchanged)":"(none)";$("wState").textContent=w.state+(w.ip?" • "+w.ip:"")}catch(e){show(e.message,1)}
+}
+$("saveWifi").onclick=async()=>{
+  const body={ssid:$("wSsid").value};
+  if($("wClear").checked)body.password="";else if($("wPass").value)body.password=$("wPass").value;
+  try{await api("PUT","/api/wifi",body);$("wPass").value="";show("Saved. Connecting in the background…");setTimeout(loadWifi,3000)}catch(e){show(e.message,1)}
+};
+
+$("exit").onclick=async()=>{
+  if(!confirm("Close setup and turn off the device access point?"))return;
+  try{await api("POST","/api/setup/exit")}catch(e){}
+  closed=true;page("bye");$("conn").textContent="SETUP CLOSED";$("conn").className="off";
+};
+for(const b of document.querySelectorAll("nav button[data-page]"))b.onclick=()=>page(b.dataset.page);
+
+// Read-only polling: never extends the AP idle timeout.
+async function poll(){
+  if(closed)return;
+  try{
+    status=await api("GET","/api/status");$("conn").textContent="DEVICE • ONLINE";$("conn").className="";
+    const r=status.apRemainingSec,w=$("apwarn");
+    if(r<=30){w.style.display="block";w.textContent="Setup closes in "+r+" s without activity. Tap anywhere to keep it open."}else w.style.display="none";
+    $("cfgerr").textContent=status.configError?"Configuration error: "+status.configError:"";
+    if(!$("p-time").classList.contains("hidden"))renderTime();
+  }catch(e){$("conn").textContent="DEVICE • OFFLINE";$("conn").className="off"}
+}
+(async()=>{
+  try{token=(await api("GET","/api/session")).token}catch(e){show(e.message,1)}
+  await poll();try{await loadEvents()}catch(e){show(e.message,1)}
+  page("events");setInterval(poll,5000);setInterval(()=>{if(!$("p-time").classList.contains("hidden"))$("phoneNow").textContent=fmt(Math.floor(Date.now()/1000),status?status.timezone:"Asia/Tokyo")},1000);
+})();
+</script>
+</body>
+</html>

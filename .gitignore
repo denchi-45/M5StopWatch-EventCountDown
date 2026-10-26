@@ -1,0 +1,9 @@
+.pio/
+.vscode/
+__pycache__/
+# 仕様書・デザインキット（84 MB、画像と ZIP）はリポジトリに含めない
+M5StopWatchi_CountDown_Design_Kit/
+sim_data/
+# ESP-IDF が環境ごとに生成する（設定の元は sdkconfig.defaults*）
+sdkconfig.*
+!sdkconfig.defaults*
