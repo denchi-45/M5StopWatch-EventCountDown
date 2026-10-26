@@ -38,9 +38,13 @@ bool KvStore::remove(const char* key) {
     return !exists(key);
 }
 
-bool KvStore::getBlob(const char* key, std::string& out) {
+KvRead KvStore::readBlob(const char* key, std::string& out) {
     out.clear();
-    return open_ && readFile(fs::path(dir_) / key, out);
+    if (!open_) return KvRead::Error;
+    const fs::path p = fs::path(dir_) / key;
+    std::error_code ec;
+    if (!fs::exists(p, ec)) return ec ? KvRead::Error : KvRead::Missing;
+    return readFile(p, out) ? KvRead::Ok : KvRead::Error;
 }
 bool KvStore::putBlob(const char* key, const std::string& v) { return open_ && writeFile(fs::path(dir_) / key, v); }
 bool KvStore::getString(const char* key, std::string& out) { return getBlob(key, out); }

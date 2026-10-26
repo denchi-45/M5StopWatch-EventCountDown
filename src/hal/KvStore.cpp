@@ -22,14 +22,20 @@ bool KvStore::remove(const char* key) {
     return !exists(key);
 }
 
-bool KvStore::getBlob(const char* key, std::string& out) {
+KvRead KvStore::readBlob(const char* key, std::string& out) {
     out.clear();
+    if (!open_) return KvRead::Error;
     size_t n = 0;
-    if (!open_ || nvs_get_blob(handle_, key, nullptr, &n) != ESP_OK) return false;
+    const esp_err_t e = nvs_get_blob(handle_, key, nullptr, &n);
+    if (e == ESP_ERR_NVS_NOT_FOUND) return KvRead::Missing;
+    if (e != ESP_OK) return KvRead::Error;
     out.resize(n);
-    if (n && nvs_get_blob(handle_, key, &out[0], &n) != ESP_OK) return false;
+    if (n && nvs_get_blob(handle_, key, &out[0], &n) != ESP_OK) {
+        out.clear();
+        return KvRead::Error;
+    }
     out.resize(n);
-    return true;
+    return KvRead::Ok;
 }
 
 bool KvStore::putBlob(const char* key, const std::string& value) {

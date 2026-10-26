@@ -116,7 +116,7 @@ $mf install --slot 2 $bin --name "EventCountDown" --port /dev/ttyACM0 --execute
 > 元に戻したい場合に備えて、先に 16 MB 全体のバックアップを取っておくことをおすすめします。
 >
 > ```sh
-> pio pkg exec -p tool-esptoolpy -- esptool --chip esp32s3 --port COM11 read-flash 0 0x1000000 backup.bin
+> pio pkg exec -p "platformio/tool-esptoolpy@~2.40900.0" -- esptool.py --chip esp32s3 --port COM11 read_flash 0 0x1000000 backup.bin
 > ```
 
 ```sh
@@ -132,8 +132,8 @@ pio device monitor -b 115200 -p COM11
 
 ## 初回セットアップ（スマホ / PC）
 
-1. カウントダウン画面の中央を 1.5 秒長押し → `WEB CONFIG`。本体が Wi-Fi アクセスポイントを起動し、
-   SSID（`EventCountDown-XXXX`）・パスワード・URL を画面に表示します。
+1. カウントダウン画面の中央を 1.5 秒長押しして設定メニューを開き、`WEB CONFIG` を選びます。
+   本体が Wi-Fi アクセスポイントを起動し、SSID（`EventCountDown-XXXX`）・パスワード・URL を画面に表示します。
 2. パスワードは本体ごとに初回に生成される乱数（`XXXX-XXXX-XXXX`）です。本体の画面にだけ表示されます。
 3. スマホ / PC でその SSID に接続し、画面に表示された URL（通常 `http://192.168.4.1`）を開きます。
    EVENTS / DEVICE / TIME / WI-FI の各ページで設定し、最後に EXIT SETUP。

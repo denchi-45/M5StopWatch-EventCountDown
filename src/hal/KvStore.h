@@ -8,13 +8,18 @@
 
 namespace cd {
 
+// Missing: the key was never written (or was removed). Error: the store could
+// not be read, so the caller must not assume the key is absent.
+enum class KvRead : uint8_t { Ok, Missing, Error };
+
 class KvStore {
 public:
     bool begin(const char* ns);
     bool exists(const char* key);
     bool remove(const char* key);  // true when the key is gone afterwards
+    KvRead readBlob(const char* key, std::string& out);
     // False when the key is missing or unreadable.
-    bool getBlob(const char* key, std::string& out);
+    bool getBlob(const char* key, std::string& out) { return readBlob(key, out) == KvRead::Ok; }
     bool putBlob(const char* key, const std::string& value);
     bool getString(const char* key, std::string& out);
     bool putString(const char* key, const std::string& value);

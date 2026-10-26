@@ -2,6 +2,7 @@
 #include <ArduinoJson.h>
 #include <esp_http_server.h>
 #include <esp_random.h>
+#include <esp_timer.h>
 #include <lwip/sockets.h>
 #include <cstring>
 #include "../app/App.h"
@@ -15,6 +16,7 @@ namespace cd {
 
 namespace {
 constexpr size_t kMaxBody = 8 * 1024;
+constexpr int64_t kBodyTimeoutUs = 3 * 1000 * 1000;
 
 httpd_req_t* R(void* p) { return static_cast<httpd_req_t*>(p); }
 
@@ -27,6 +29,7 @@ const char* statusLine(int code) {
         case 401: return "401 Unauthorized";
         case 403: return "403 Forbidden";
         case 404: return "404 Not Found";
+        case 408: return "408 Request Timeout";
         case 409: return "409 Conflict";
         case 413: return "413 Payload Too Large";
         case 503: return "503 Service Unavailable";
@@ -208,7 +211,14 @@ bool WebConfigServer::readBody() {
     httpd_req_t* req = R(req_);
     body_.assign(req->content_len, '\0');
     size_t got = 0;
+    // The UI lock is held while reading: a slow or silent client gets one fixed
+    // deadline for the whole body, however its data trickles in.
+    const int64_t deadline = esp_timer_get_time() + kBodyTimeoutUs;
     while (got < body_.size()) {
+        if (stopping_ || esp_timer_get_time() >= deadline) {
+            sendError(408, "request body timed out");
+            return false;
+        }
         const int n = httpd_req_recv(req, &body_[got], body_.size() - got);
         if (n == HTTPD_SOCK_ERR_TIMEOUT) continue;
         if (n <= 0) return false;  // connection gone: nothing to answer

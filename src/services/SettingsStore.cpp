@@ -57,7 +57,13 @@ int64_t SettingsStore::getI64(const char* key) {
     return ok_ && prefs.getI64(key, v) ? v : 0;
 }
 
-bool SettingsStore::loadEvents(std::string& json) { return getBlob(kEvents, json); }
+KvRead SettingsStore::loadEvents(std::string& json) {
+    if (!ok_) {
+        json.clear();
+        return KvRead::Error;
+    }
+    return prefs.readBlob(kEvents, json);
+}
 bool SettingsStore::saveEvents(const std::string& json) { return putBlobVerified(kEvents, json); }
 bool SettingsStore::backupCorruptEvents(const std::string& json) {
     uint32_t h = 2166136261u;
@@ -77,9 +83,17 @@ std::string SettingsStore::wifiSsid() { return getString(kWifiSsid); }
 bool SettingsStore::wifiPasswordConfigured() { return ok_ && prefs.exists(kWifiPass); }
 std::string SettingsStore::wifiPassword() { return getString(kWifiPass); }
 bool SettingsStore::saveWifi(const std::string& ssid, const std::string* password) {
-    if (!putStringVerified(kWifiSsid, ssid)) return false;
-    if (password) return putStringVerified(kWifiPass, *password);
-    return true;
+    if (!password) return putStringVerified(kWifiSsid, ssid);
+    if (!ok_) return false;
+    // Two NVS keys cannot be written atomically: keep the old pair so a failed
+    // write can be undone. Refuse when an existing value cannot be read back.
+    std::string oldSsid, oldPw;
+    if (!prefs.getString(kWifiSsid, oldSsid) && prefs.exists(kWifiSsid)) return false;
+    if (!prefs.getString(kWifiPass, oldPw) && prefs.exists(kWifiPass)) return false;
+    if (putStringVerified(kWifiSsid, ssid) && putStringVerified(kWifiPass, *password)) return true;
+    putStringVerified(kWifiSsid, oldSsid);
+    putStringVerified(kWifiPass, oldPw);
+    return false;
 }
 
 std::string SettingsStore::apPassword() {

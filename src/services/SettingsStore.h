@@ -4,6 +4,7 @@
 // Every write is verified by reading it back (validate -> write -> verify).
 #include <cstdint>
 #include <string>
+#include "../hal/KvStore.h"
 
 namespace cd {
 
@@ -13,7 +14,8 @@ public:
 
     bool begin();
 
-    bool loadEvents(std::string& json);
+    // Error (not Missing) when the namespace or the key could not be read.
+    KvRead loadEvents(std::string& json);
     bool saveEvents(const std::string& json);
     // Keeps unreadable event data aside before the slot may be reused. Never
     // overwrites an earlier backup; true only when the copy is verified.
@@ -26,7 +28,9 @@ public:
     std::string wifiSsid();
     bool wifiPasswordConfigured();
     std::string wifiPassword();
-    // password == nullptr keeps the stored one; "" deletes it.
+    // password == nullptr keeps the stored one; "" deletes it. With a password,
+    // SSID and password change together: on failure both previous values are
+    // restored.
     bool saveWifi(const std::string& ssid, const std::string* password);
 
     // SoftAP WPA2 key: generated once per device from the hardware RNG.

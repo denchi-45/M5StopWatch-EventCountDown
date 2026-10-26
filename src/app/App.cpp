@@ -94,7 +94,18 @@ void App::loadPersisted() {
     }
     std::vector<Event> evs;
     std::string sel, err;
-    if (!store_.loadEvents(json)) json.clear();
+    switch (store_.loadEvents(json)) {
+        case KvRead::Ok:
+            break;
+        case KvRead::Missing:
+            json.clear();
+            break;
+        case KvRead::Error:
+            // The stored events may still be intact: never overwrite them.
+            eventsReadOnly_ = true;
+            configError_ = "stored events could not be read; events read-only";
+            return;
+    }
     switch (decodeEvents(json, evs, sel, err)) {
         case LoadResult::Ok:
             repo_.assign(std::move(evs), sel);
