@@ -214,13 +214,18 @@ bool WebConfigServer::readBody() {
     // The UI lock is held while reading: a slow or silent client gets one fixed
     // deadline for the whole body, however its data trickles in.
     const int64_t deadline = esp_timer_get_time() + kBodyTimeoutUs;
+    auto expired = [&] {
+        if (!stopping_ && esp_timer_get_time() < deadline) return false;
+        sendError(408, "request body timed out");
+        return true;
+    };
     while (got < body_.size()) {
-        if (stopping_ || esp_timer_get_time() >= deadline) {
-            sendError(408, "request body timed out");
-            return false;
-        }
+        if (expired()) return false;
         const int n = httpd_req_recv(req, &body_[got], body_.size() - got);
-        if (n == HTTPD_SOCK_ERR_TIMEOUT) continue;
+        if (n == HTTPD_SOCK_ERR_TIMEOUT) {
+            if (expired()) return false;
+            continue;
+        }
         if (n <= 0) return false;  // connection gone: nothing to answer
         got += size_t(n);
     }
