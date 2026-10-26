@@ -79,7 +79,8 @@ tools/multifirm.sh install --slot 2 "$bin" --name "EventCountDown" --port /dev/t
 
 - 指定したスロットに入っていたアプリは上書きされます。他のスロット・設定（NVS）・起動先は変わりません。
 - 書き込み後は Launcher が起動するので、一覧から **EventCountDown** を選んでください。
-- 実機なしでの検査: `python tools/multifirm.py inspect <bin>`（Windows でも `/` 区切りで動きます）
+- 実機なしでの検査（上で設定した `$bin` / `bin` を使います）:
+  PowerShell では `python tools/multifirm.py inspect $bin`、macOS / Linux では `python3 tools/multifirm.py inspect "$bin"`
 
 ## Launcher への戻り方
 
