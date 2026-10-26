@@ -34,7 +34,8 @@ Launcher 導入済みの本体に入れるだけなら、ビルドせずに [Rel
    ```
 
    ```sh
-   shasum -a 256 ~/Downloads/firmware.bin                          # macOS / Linux
+   shasum -a 256 ~/Downloads/firmware.bin                          # macOS
+   sha256sum ~/Downloads/firmware.bin                              # Linux
    ```
 
 3. 下の「[A. Launcher 導入済みの本体](#a-launcher-導入済みの本体ゲストスロットに入れる)」の手順で書き込みます
@@ -103,7 +104,8 @@ tools/.venv/bin/python -m pip install -r tools/requirements.txt
 **3. ゲストスロットに書き込む**
 
 EventCountDown のフォルダで実行します（`COM11` とスロット番号 `2` は環境に合わせて変更。スロットは 1〜3）。
-Releases からダウンロードした bin を使う場合は、`$bin` / `bin` をそのファイルのパス（例: `$HOME\Downloads\firmware.bin`）に、
+Releases からダウンロードした bin を使う場合は、`$bin` / `bin` をそのファイルのパス
+（Windows の例: `$HOME\Downloads\firmware.bin`、macOS / Linux の例: `$HOME/Downloads/firmware.bin`）に、
 `$mf` / `mf` を M5StopWatch-MultiFirm を clone した場所に合わせてください。
 
 ```powershell
