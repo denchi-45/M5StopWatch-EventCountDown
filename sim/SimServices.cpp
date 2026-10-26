@@ -7,7 +7,6 @@
 #include "../src/services/SettingsStore.h"
 #include "../src/services/WebConfigServer.h"
 
-class WebServer {};
 
 namespace cd {
 
@@ -23,7 +22,7 @@ const char* staStateText(StaState s) {
 
 void NetworkService::begin(SettingsStore* store, int64_t nowMs) {
     store_ = store;
-    apSsid_ = "M5-Countdown-SIM";
+    apSsid_ = "EventCountDown-SIM";
     credentialsChanged(nowMs);
 }
 void NetworkService::credentialsChanged(int64_t) {
@@ -56,6 +55,5 @@ WebConfigServer::WebConfigServer(App& app) : app_(app) {}
 WebConfigServer::~WebConfigServer() = default;
 void WebConfigServer::start() {}
 void WebConfigServer::stop() {}
-void WebConfigServer::loop() {}
 
 }  // namespace cd

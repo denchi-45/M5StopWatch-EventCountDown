@@ -59,7 +59,7 @@ void useStopWatchPanel() {
     cfg.memory_height = cfg.panel_height = kSize;
     cfg.bus_shared = false;
     p->config(cfg);
-    p->setWindowTitle("M5StopWatch Countdown (simulator)");
+    p->setWindowTitle("EventCountDown (simulator)");
     p->setScaling(1, 1);
     auto* t = new lgfx::Touch_sdl();
     auto tc = t->config();
@@ -84,7 +84,7 @@ int run(bool* running) {
     M5.begin(cfg);
     useStopWatchPanel();
     M5.Touch.begin(&M5.Display);
-    cd::app().setup();
+    cd::app().setup(false, false);  // SDL panel: canvas double buffer; input is polled
     while (*running) {
         M5.update();
         cd::app().loop();

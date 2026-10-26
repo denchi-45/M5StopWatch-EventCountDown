@@ -50,6 +50,7 @@ public:
     explicit MenuPage(App& app) : SettingsPage(app, "DEVICE SETTINGS") {}
     void enter(ScreenId from) override;
     void draw(Painter& p) override;
+    bool ticks() const override { return false; }  // shows no running time
 
 protected:
     int focusCount() const override { return 6; }
@@ -73,6 +74,7 @@ public:
     explicit SetTimePage(App& app) : SettingsPage(app, "SET TIME") {}
     void enter(ScreenId from) override;
     void draw(Painter& p) override;
+    bool ticks() const override { return false; }  // shows no running time
 
 protected:
     DateEditor editor_;
@@ -106,6 +108,7 @@ public:
     explicit OptionsPage(App& app) : SettingsPage(app, "DEVICE OPTIONS") {}
     void enter(ScreenId from) override;
     void draw(Painter& p) override;
+    bool ticks() const override { return false; }  // shows no running time
 
 protected:
     DeviceSettings draft_;

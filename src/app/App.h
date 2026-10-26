@@ -1,7 +1,8 @@
 #pragma once
 // Application controller: owns the services, applies every state change in one
 // place (clock, events, settings, network) and drives the screens.
-// Everything runs on the Arduino loop task except the NTP worker.
+// Everything runs on the UI task (main.cpp) except the NTP worker and the web
+// server, which take the UI lock (hal/UiTask.h) before calling in.
 #include <M5Unified.h>
 #include <memory>
 #include <string>
@@ -27,8 +28,16 @@ public:
     static constexpr int64_t kApIdleMs = 5 * 60 * 1000;
     static constexpr int64_t kSelectionDebounceMs = 2000;
 
-    void setup();
+    // framebuffer: the display keeps its own frame in memory and transfers only
+    // what changed, so frames are drawn on it directly (no canvas of our own).
+    // inputWake: presses end a wait, so idleMs() need not poll for them.
+    void setup(bool framebuffer, bool inputWake);
     void loop();
+    // How long the UI task may wait before the next loop() (its earliest deadline).
+    uint32_t idleMs();
+    // Automatic light sleep may run during that wait (dimmed, on battery, radio
+    // off, no sound or vibration in progress).
+    bool lightSleepAllowed() const;
 
     // ---- read access for screens and the web API
     const DeviceCapabilities& caps() const { return caps_; }
@@ -102,15 +111,20 @@ private:
     ScreenId stack_[8];
     int depth_ = 0;
 
-    // Rendering
+    // Rendering. frame_ is the double buffer for panels without a framebuffer
+    // of their own; bg_ caches the static background.
     M5Canvas* frame_ = nullptr;
     M5Canvas* bg_ = nullptr;
+    M5Canvas* live_ = nullptr;  // partial frames (Screen::liveRect)
     uint32_t bgKey_ = 0xFFFFFFFF;
     ScreenId bgScreen_ = ScreenId::Countdown;
     bool bgValid_ = false;
-    bool dirty_ = true;
+    uint32_t contentKey_ = 0;
+    bool toastShown_ = false;
+    bool dirty_ = true;  // something other than the passing of time changed
     int64_t lastDrawnSecond_ = -1;
     int64_t lastFrameMs_ = 0;
+    bool inputWake_ = false;
 
     // Clock tick / arrivals
     bool haveTick_ = false;
@@ -137,6 +151,10 @@ private:
 
     // Power / notification
     int64_t lastInputMs_ = 0;
+    int64_t fastPollUntil_ = 0;  // keep sampling input this long after activity
+    bool usbPower_ = false;      // cached: reading it is an I2C transfer
+    int64_t usbReadAt_ = 0;
+    int statusLed_ = -1;         // unknown until the first USB reading sets it
     bool dimmed_ = false;
     bool swallowNext_ = false;  // the press that woke a dimmed screen
     int64_t vibrateUntil_ = 0;
@@ -157,8 +175,10 @@ private:
     void tickPower(int64_t now, bool activity);
     void notifyArrival();
     void render();
+    int64_t msToNextSecond() const;
+    bool liveCanvas(int w, int h);
     void applyBrightness();
-    static bool onExternalPower();
+    void readUsb();
     void afterClockSet(SetResult r, ClockSource src);
     Screen* screenFor(ScreenId id);
     static void launcherShutdown(void* ctx);

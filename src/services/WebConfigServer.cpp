@@ -1,20 +1,69 @@
 #include "WebConfigServer.h"
 #include <ArduinoJson.h>
-#include <WebServer.h>
-#include <WiFi.h>
+#include <esp_http_server.h>
 #include <esp_random.h>
-#include <uri/UriBraces.h>
+#include <lwip/sockets.h>
+#include <cstring>
 #include "../app/App.h"
+#include "../hal/UiTask.h"
 #include "JsonCodec.h"
 
-extern const uint8_t index_html_start[] asm("_binary_web_index_html_start");
-extern const uint8_t index_html_end[] asm("_binary_web_index_html_end");
+extern const uint8_t index_html_start[] asm("_binary_index_html_start");
+extern const uint8_t index_html_end[] asm("_binary_index_html_end");
 
 namespace cd {
 
 namespace {
 constexpr size_t kMaxBody = 8 * 1024;
-const char* kHeaders[] = {"Host", "X-CD-Session"};
+
+httpd_req_t* R(void* p) { return static_cast<httpd_req_t*>(p); }
+
+const char* statusLine(int code) {
+    switch (code) {
+        case 200: return "200 OK";
+        case 201: return "201 Created";
+        case 202: return "202 Accepted";
+        case 400: return "400 Bad Request";
+        case 401: return "401 Unauthorized";
+        case 403: return "403 Forbidden";
+        case 404: return "404 Not Found";
+        case 409: return "409 Conflict";
+        case 413: return "413 Payload Too Large";
+        case 503: return "503 Service Unavailable";
+        default: return "500 Internal Server Error";
+    }
+}
+
+std::string header(httpd_req_t* req, const char* name) {
+    const size_t n = httpd_req_get_hdr_value_len(req, name);
+    if (n == 0) return std::string();
+    std::string v(n + 1, '\0');
+    if (httpd_req_get_hdr_value_str(req, name, &v[0], v.size()) != ESP_OK) return std::string();
+    v.resize(n);
+    return v;
+}
+
+// The local address the request arrived on (the server socket is dual-stack,
+// so IPv4 clients appear as IPv4-mapped IPv6 addresses).
+std::string localIp(httpd_req_t* req) {
+    sockaddr_storage addr{};
+    socklen_t len = sizeof addr;
+    if (getsockname(httpd_req_to_sockfd(req), reinterpret_cast<sockaddr*>(&addr), &len) != 0) return "";
+    uint8_t v4[4];
+    if (addr.ss_family == AF_INET) {
+        std::memcpy(v4, &reinterpret_cast<sockaddr_in*>(&addr)->sin_addr, 4);
+    } else if (addr.ss_family == AF_INET6) {
+        const uint8_t* a = reinterpret_cast<const uint8_t*>(&reinterpret_cast<sockaddr_in6*>(&addr)->sin6_addr);
+        static const uint8_t kMapped[12] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xFF, 0xFF};
+        if (std::memcmp(a, kMapped, 12) != 0) return "";
+        std::memcpy(v4, a + 12, 4);
+    } else {
+        return "";
+    }
+    char buf[16];
+    std::snprintf(buf, sizeof buf, "%u.%u.%u.%u", v4[0], v4[1], v4[2], v4[3]);
+    return buf;
+}
 
 std::string randomHex(int bytes) {
     static const char* hex = "0123456789abcdef";
@@ -58,6 +107,15 @@ bool parseEventInput(JsonObjectConst o, EventInput& in, const char*& err) {
 }
 }  // namespace
 
+struct WebConfigServer::Route {
+    const char* uri;
+    httpd_method_t method;
+    bool mutating;  // needs the session token
+    bool body;      // reads a JSON body
+    void (WebConfigServer::*fn)();
+    WebConfigServer* self;
+};
+
 WebConfigServer::WebConfigServer(App& app) : app_(app) {}
 WebConfigServer::~WebConfigServer() { stop(); }
 
@@ -66,55 +124,103 @@ void WebConfigServer::start() {
     session_ = randomHex(16);
     exitAt_ = 0;
     previewToken_.clear();
-    server_.reset(new WebServer(80));
-    server_->collectHeaders(kHeaders, 2);
+    stopping_ = false;
+    httpd_config_t cfg = HTTPD_DEFAULT_CONFIG();
+    cfg.max_uri_handlers = 20;
+    cfg.max_open_sockets = 4;
+    cfg.lru_purge_enable = true;
+    cfg.stack_size = 8192;
+    // A stalled client holds the UI lock for at most this long.
+    cfg.recv_wait_timeout = 2;
+    cfg.send_wait_timeout = 2;
+    cfg.uri_match_fn = httpd_uri_match_wildcard;
+    httpd_handle_t h = nullptr;
+    if (httpd_start(&h, &cfg) != ESP_OK) return;
+    server_ = h;
     routes();
-    server_->begin();
 }
 
 void WebConfigServer::stop() {
     if (!server_) return;
-    server_->stop();
-    server_.reset();
+    // Called on the UI task with the UI lock held: a handler waiting for the
+    // lock sees stopping_ and returns, so httpd_stop() can join its task.
+    stopping_ = true;
+    httpd_stop(static_cast<httpd_handle_t>(server_));
+    server_ = nullptr;
     session_.clear();
     previewToken_.clear();
     exitAt_ = 0;
 }
 
-void WebConfigServer::loop() {
-    if (server_) server_->handleClient();
+int WebConfigServer::dispatch(void* reqPtr) {
+    httpd_req_t* req = R(reqPtr);
+    const Route& r = *static_cast<const Route*>(req->user_ctx);
+    WebConfigServer& s = *r.self;
+    while (!uitask::tryLock(50)) {
+        if (s.stopping_) {
+            httpd_resp_set_status(req, statusLine(503));
+            httpd_resp_send(req, nullptr, 0);
+            return ESP_OK;
+        }
+    }
+    if (!s.stopping_) {
+        s.req_ = req;
+        s.pathId_.clear();
+        const char* prefix = "/api/events/";
+        if (std::strncmp(req->uri, prefix, std::strlen(prefix)) == 0) {
+            s.pathId_ = req->uri + std::strlen(prefix);
+            s.pathId_ = s.pathId_.substr(0, s.pathId_.find('?'));
+        }
+        if (s.allowed(r.mutating) && (!r.body || s.readBody())) (s.*r.fn)();
+        s.req_ = nullptr;
+        s.body_.clear();
+    }
+    uitask::unlock();
+    uitask::notify();  // redraw for whatever the request changed
+    return ESP_OK;
 }
 
 bool WebConfigServer::allowed(bool mutating) {
-    WebServer& s = *server_;
-    const IPAddress ap = WiFi.softAPIP();
+    httpd_req_t* req = R(req_);
+    const std::string ap = app_.net().apIp();
     // Only the setup network, never the home network the STA is joined to.
-    if (s.client().localIP() != ap) {
+    if (ap.empty() || localIp(req) != ap) {
         sendError(403, "setup API is only available on the device access point");
         return false;
     }
-    const String host = s.header("Host");
-    const String ip = ap.toString();
-    if (host != ip && host != ip + ":80") {
+    const std::string host = header(req, "Host");
+    if (host != ap && host != ap + ":80") {
         sendError(403, "unexpected Host header");
         return false;
     }
-    if (mutating && (session_.empty() || s.header("X-CD-Session") != session_.c_str())) {
+    if (mutating && (session_.empty() || header(req, "X-CD-Session") != session_)) {
         sendError(401, "missing or stale session; reload the page");
         return false;
     }
-    if (s.clientContentLength() > int(kMaxBody)) {
+    if (req->content_len > kMaxBody) {
         sendError(413, "request body too large");
         return false;
     }
     return true;
 }
 
+bool WebConfigServer::readBody() {
+    httpd_req_t* req = R(req_);
+    body_.assign(req->content_len, '\0');
+    size_t got = 0;
+    while (got < body_.size()) {
+        const int n = httpd_req_recv(req, &body_[got], body_.size() - got);
+        if (n == HTTPD_SOCK_ERR_TIMEOUT) continue;
+        if (n <= 0) return false;  // connection gone: nothing to answer
+        got += size_t(n);
+    }
+    return true;
+}
+
 bool WebConfigServer::readJson(void* docPtr) {
     JsonDocument& doc = *static_cast<JsonDocument*>(docPtr);
-    const String& body = server_->arg("plain");
-    if (body.length() > kMaxBody) { sendError(413, "request body too large"); return false; }
-    if (deserializeJson(doc, body.c_str(), body.length()) || !doc.is<JsonObject>()) {
+    if (body_.size() > kMaxBody) { sendError(413, "request body too large"); return false; }
+    if (deserializeJson(doc, body_) || !doc.is<JsonObject>()) {
         sendError(400, "body must be a JSON object");
         return false;
     }
@@ -122,9 +228,12 @@ bool WebConfigServer::readJson(void* docPtr) {
 }
 
 void WebConfigServer::sendJson(int code, const std::string& body) {
-    server_->sendHeader("Cache-Control", "no-store");
-    server_->sendHeader("X-Content-Type-Options", "nosniff");
-    server_->send(code, "application/json", body.c_str());
+    httpd_req_t* req = R(req_);
+    httpd_resp_set_status(req, statusLine(code));
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_set_hdr(req, "Cache-Control", "no-store");
+    httpd_resp_set_hdr(req, "X-Content-Type-Options", "nosniff");
+    httpd_resp_send(req, body.data(), ssize_t(body.size()));
 }
 
 void WebConfigServer::sendError(int code, const char* msg) {
@@ -138,44 +247,66 @@ void WebConfigServer::sendError(int code, const char* msg) {
 
 void WebConfigServer::sendOk() { sendJson(200, "{\"ok\":true}"); }
 
+void WebConfigServer::handleIndex() {
+    httpd_req_t* req = R(req_);
+    httpd_resp_set_type(req, "text/html; charset=utf-8");
+    httpd_resp_set_hdr(req, "Cache-Control", "no-store");
+    httpd_resp_set_hdr(req, "X-Frame-Options", "DENY");
+    httpd_resp_set_hdr(req, "Content-Security-Policy",
+                       "default-src 'self'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; "
+                       "connect-src 'self'; frame-ancestors 'none'");
+    const size_t len = size_t(index_html_end - index_html_start) - 1;  // trailing NUL
+    httpd_resp_send(req, reinterpret_cast<const char*>(index_html_start), ssize_t(len));
+}
+
+void WebConfigServer::handleSession() {
+    JsonDocument doc;
+    doc["token"] = session_;
+    std::string out;
+    serializeJson(doc, out);
+    sendJson(200, out);
+}
+
 void WebConfigServer::routes() {
-    WebServer& s = *server_;
-    s.on("/", HTTP_GET, [this]() {
-        if (!allowed(false)) return;
-        server_->sendHeader("Cache-Control", "no-store");
-        server_->sendHeader("X-Frame-Options", "DENY");
-        server_->sendHeader("Content-Security-Policy",
-                            "default-src 'self'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; "
-                            "connect-src 'self'; frame-ancestors 'none'");
-        const size_t len = size_t(index_html_end - index_html_start) - 1;  // trailing NUL
-        server_->send_P(200, "text/html; charset=utf-8",
-                        reinterpret_cast<const char*>(index_html_start), len);
+    using W = WebConfigServer;
+    // Static: httpd keeps the user_ctx pointers. Order matters where wildcards
+    // overlap: /api/events/order before /api/events/*.
+    static Route table[] = {
+        {"/", HTTP_GET, false, false, &W::handleIndex, nullptr},
+        {"/api/session", HTTP_GET, false, false, &W::handleSession, nullptr},
+        {"/api/status", HTTP_GET, false, false, &W::handleStatus, nullptr},
+        {"/api/events/order", HTTP_PUT, true, true, &W::handleOrder, nullptr},
+        {"/api/events", HTTP_GET, false, false, &W::handleEventsGet, nullptr},
+        {"/api/events", HTTP_POST, true, true, &W::handleEventsPost, nullptr},
+        {"/api/events/*", HTTP_PUT, true, true, &W::handleEventPut, nullptr},
+        {"/api/events/*", HTTP_DELETE, true, false, &W::handleEventDelete, nullptr},
+        {"/api/selection", HTTP_PUT, true, true, &W::handleSelection, nullptr},
+        {"/api/settings", HTTP_GET, false, false, &W::handleSettingsGet, nullptr},
+        {"/api/settings", HTTP_PUT, true, true, &W::handleSettingsPut, nullptr},
+        {"/api/rtc/preview", HTTP_POST, true, true, &W::handleRtcPreview, nullptr},
+        {"/api/wifi", HTTP_GET, false, false, &W::handleWifiGet, nullptr},
+        {"/api/wifi", HTTP_PUT, true, true, &W::handleWifiPut, nullptr},
+        {"/api/time", HTTP_POST, true, true, &W::handleTime, nullptr},
+        {"/api/ntp/sync", HTTP_POST, true, false, &W::handleNtp, nullptr},
+        {"/api/session/activity", HTTP_POST, true, false, &W::handleActivity, nullptr},
+        {"/api/setup/exit", HTTP_POST, true, false, &W::handleExit, nullptr},
+    };
+    auto h = static_cast<httpd_handle_t>(server_);
+    for (Route& r : table) {
+        r.self = this;
+        httpd_uri_t u{};
+        u.uri = r.uri;
+        u.method = r.method;
+        u.handler = [](httpd_req_t* req) -> esp_err_t { return esp_err_t(W::dispatch(req)); };
+        u.user_ctx = &r;
+        httpd_register_uri_handler(h, &u);
+    }
+    httpd_register_err_handler(h, HTTPD_404_NOT_FOUND, [](httpd_req_t* req, httpd_err_code_t) -> esp_err_t {
+        httpd_resp_set_status(req, "404 Not Found");
+        httpd_resp_set_type(req, "application/json");
+        httpd_resp_sendstr(req, "{\"ok\":false,\"error\":\"not found\"}");
+        return ESP_OK;
     });
-    s.on("/api/session", HTTP_GET, [this]() {
-        if (!allowed(false)) return;
-        JsonDocument doc;
-        doc["token"] = session_;
-        std::string out;
-        serializeJson(doc, out);
-        sendJson(200, out);
-    });
-    s.on("/api/status", HTTP_GET, [this]() { if (allowed(false)) handleStatus(); });
-    s.on("/api/events/order", HTTP_PUT, [this]() { if (allowed(true)) handleOrder(); });
-    s.on("/api/events", HTTP_GET, [this]() { if (allowed(false)) handleEventsGet(); });
-    s.on("/api/events", HTTP_POST, [this]() { if (allowed(true)) handleEventsPost(); });
-    s.on(UriBraces("/api/events/{}"), HTTP_PUT, [this]() { if (allowed(true)) handleEventPut(); });
-    s.on(UriBraces("/api/events/{}"), HTTP_DELETE, [this]() { if (allowed(true)) handleEventDelete(); });
-    s.on("/api/selection", HTTP_PUT, [this]() { if (allowed(true)) handleSelection(); });
-    s.on("/api/settings", HTTP_GET, [this]() { if (allowed(false)) handleSettingsGet(); });
-    s.on("/api/settings", HTTP_PUT, [this]() { if (allowed(true)) handleSettingsPut(); });
-    s.on("/api/rtc/preview", HTTP_POST, [this]() { if (allowed(true)) handleRtcPreview(); });
-    s.on("/api/wifi", HTTP_GET, [this]() { if (allowed(false)) handleWifiGet(); });
-    s.on("/api/wifi", HTTP_PUT, [this]() { if (allowed(true)) handleWifiPut(); });
-    s.on("/api/time", HTTP_POST, [this]() { if (allowed(true)) handleTime(); });
-    s.on("/api/ntp/sync", HTTP_POST, [this]() { if (allowed(true)) handleNtp(); });
-    s.on("/api/session/activity", HTTP_POST, [this]() { if (allowed(true)) handleActivity(); });
-    s.on("/api/setup/exit", HTTP_POST, [this]() { if (allowed(true)) handleExit(); });
-    s.onNotFound([this]() { sendError(404, "not found"); });
 }
 
 // ---------------------------------------------------------------- status
@@ -256,7 +387,7 @@ void WebConfigServer::handleEventPut() {
     if (!parseEventInput(doc.as<JsonObjectConst>(), in, err)) return sendError(400, err);
     std::string detail;
     bool saveFailed = false;
-    const RepoError r = app_.updateEvent(server_->pathArg(0).c_str(), in, &detail, saveFailed);
+    const RepoError r = app_.updateEvent(pathId_, in, &detail, saveFailed);
     if (saveFailed) return sendError(500, "could not save to NVS; nothing changed");
     int code;
     const char* msg = repoStatus(r, code);
@@ -267,7 +398,7 @@ void WebConfigServer::handleEventPut() {
 
 void WebConfigServer::handleEventDelete() {
     bool saveFailed = false;
-    const RepoError r = app_.deleteEvent(server_->pathArg(0).c_str(), saveFailed);
+    const RepoError r = app_.deleteEvent(pathId_, saveFailed);
     if (saveFailed) return sendError(500, "could not save to NVS; nothing changed");
     int code;
     const char* msg = repoStatus(r, code);

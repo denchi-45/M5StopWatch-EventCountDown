@@ -1,13 +1,12 @@
 #include "SettingsStore.h"
-#include <Preferences.h>
 #include <esp_random.h>
 #include <cstdio>
-#include <vector>
+#include "../hal/KvStore.h"
 
 namespace cd {
 
 namespace {
-Preferences prefs;
+KvStore prefs;
 constexpr const char* kEvents = "events";
 // Unreadable event blobs are kept under "evbak_<fnv1a32>": one key per distinct
 // payload, so a later corruption never overwrites an earlier backup.
@@ -21,42 +20,41 @@ constexpr const char* kNtpOk = "ntp_ok";
 }  // namespace
 
 bool SettingsStore::begin() {
-    ok_ = prefs.begin(kNamespace, false);
+    ok_ = prefs.begin(kNamespace);
     return ok_;
 }
 
 bool SettingsStore::getBlob(const char* key, std::string& out) {
-    out.clear();
-    if (!ok_ || !prefs.isKey(key)) return false;
-    const size_t n = prefs.getBytesLength(key);
-    if (n == 0) return true;
-    std::vector<char> buf(n);
-    if (prefs.getBytes(key, buf.data(), n) != n) return false;
-    out.assign(buf.data(), n);
-    return true;
+    return ok_ && prefs.getBlob(key, out);
 }
 
 bool SettingsStore::putBlobVerified(const char* key, const std::string& value) {
-    if (!ok_) return false;
-    if (prefs.putBytes(key, value.data(), value.size()) != value.size()) return false;
+    if (!ok_ || !prefs.putBlob(key, value)) return false;
     std::string back;
     return getBlob(key, back) && back == value;
 }
 
 bool SettingsStore::putStringVerified(const char* key, const std::string& value) {
     if (!ok_) return false;
-    if (value.empty()) {
-        if (prefs.isKey(key)) prefs.remove(key);
-        return !prefs.isKey(key);
-    }
-    if (prefs.putString(key, value.c_str()) != value.size()) return false;
-    return std::string(prefs.getString(key, "").c_str()) == value;
+    if (value.empty()) return prefs.remove(key);
+    std::string back;
+    return prefs.putString(key, value) && prefs.getString(key, back) && back == value;
 }
 
 bool SettingsStore::putI64Verified(const char* key, int64_t v) {
-    if (!ok_) return false;
-    prefs.putLong64(key, v);
-    return prefs.getLong64(key, v - 1) == v;
+    int64_t back = 0;
+    return ok_ && prefs.putI64(key, v) && prefs.getI64(key, back) && back == v;
+}
+
+std::string SettingsStore::getString(const char* key) {
+    std::string v;
+    if (ok_) prefs.getString(key, v);
+    return v;
+}
+
+int64_t SettingsStore::getI64(const char* key) {
+    int64_t v = 0;
+    return ok_ && prefs.getI64(key, v) ? v : 0;
 }
 
 bool SettingsStore::loadEvents(std::string& json) { return getBlob(kEvents, json); }
@@ -75,13 +73,9 @@ bool SettingsStore::saveSettings(const std::string& json) {
     return putBlobVerified(kSettings, json);
 }
 
-std::string SettingsStore::wifiSsid() {
-    return ok_ ? std::string(prefs.getString(kWifiSsid, "").c_str()) : std::string();
-}
-bool SettingsStore::wifiPasswordConfigured() { return ok_ && prefs.isKey(kWifiPass); }
-std::string SettingsStore::wifiPassword() {
-    return ok_ ? std::string(prefs.getString(kWifiPass, "").c_str()) : std::string();
-}
+std::string SettingsStore::wifiSsid() { return getString(kWifiSsid); }
+bool SettingsStore::wifiPasswordConfigured() { return ok_ && prefs.exists(kWifiPass); }
+std::string SettingsStore::wifiPassword() { return getString(kWifiPass); }
 bool SettingsStore::saveWifi(const std::string& ssid, const std::string* password) {
     if (!putStringVerified(kWifiSsid, ssid)) return false;
     if (password) return putStringVerified(kWifiPass, *password);
@@ -89,7 +83,7 @@ bool SettingsStore::saveWifi(const std::string& ssid, const std::string* passwor
 }
 
 std::string SettingsStore::apPassword() {
-    std::string pw = ok_ ? std::string(prefs.getString(kApPass, "").c_str()) : std::string();
+    std::string pw = getString(kApPass);
     if (pw.size() >= 12) return pw;
     // 12 symbols from a 31-letter alphabet without look-alikes (~59 bits),
     // shown as XXXX-XXXX-XXXX on the device screen only.
@@ -103,9 +97,9 @@ std::string SettingsStore::apPassword() {
     return pw;
 }
 
-int64_t SettingsStore::lastKnownGoodUtc() { return ok_ ? prefs.getLong64(kLkg, 0) : 0; }
+int64_t SettingsStore::lastKnownGoodUtc() { return getI64(kLkg); }
 bool SettingsStore::saveLastKnownGoodUtc(int64_t utc) { return putI64Verified(kLkg, utc); }
-int64_t SettingsStore::lastNtpSuccessUtc() { return ok_ ? prefs.getLong64(kNtpOk, 0) : 0; }
+int64_t SettingsStore::lastNtpSuccessUtc() { return getI64(kNtpOk); }
 bool SettingsStore::saveLastNtpSuccessUtc(int64_t utc) { return putI64Verified(kNtpOk, utc); }
 
 }  // namespace cd

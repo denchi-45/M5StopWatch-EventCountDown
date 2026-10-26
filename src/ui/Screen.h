@@ -26,6 +26,19 @@ public:
     virtual uint32_t backgroundKey() const { return 0; }
     virtual void drawBackground(Painter& p) = 0;
     virtual void draw(Painter& p) = 0;
+    // What may change on screen with the passing of time alone (App::render).
+    // ticks(): the screen shows the time at all; false = no frame per second.
+    virtual bool ticks() const { return true; }
+    // The part of draw() that changes from second to second (design units).
+    // When nothing else changed, only this rectangle is redrawn and sent.
+    // false = every second is a full frame.
+    virtual bool liveRect(Rect& r) const {
+        (void)r;
+        return false;
+    }
+    // A summary of everything draw() shows outside liveRect(); when it changes,
+    // the frame is a full one.
+    virtual uint32_t contentKey() const { return 0; }
     // Touch coordinates are already in design units.
     virtual void onInput(const InputEvent& e, float dx, float dy) = 0;
 

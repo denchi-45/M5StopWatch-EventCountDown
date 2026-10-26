@@ -188,7 +188,7 @@ void EventListPage::draw(Painter& p) {
         const bool f = focused(i), sel = e.id == app.events().selectedId();
         hud::frame(p, r, 10, e.enabled ? (f ? 2 : 1) : 0, sel);
         hud::nubs(p, r, e.enabled ? pal::red : pal::frameDim);
-        char idx[4];
+        char idx[12];
         std::snprintf(idx, sizeof idx, "%02d", i + 1);
         SegStyle s;
         s.digitW = 11;
@@ -201,7 +201,7 @@ void EventListPage::draw(Painter& p) {
         p.text(name.c_str(), r.x + 62, cy + 1, middle_left, fontset::japan, 0.8f,
                e.enabled ? pal::text : pal::textMuted);
         p.line(r.x + w - 76, cy - 11, r.x + w - 76, cy + 11, 1, pal::frameDim);
-        char status[12];
+        char status[24];
         if (!e.enabled) std::snprintf(status, sizeof status, "OFF");
         else if (sel) std::snprintf(status, sizeof status, "ACTIVE");
         else if (!app.clock().valid()) std::snprintf(status, sizeof status, "--");

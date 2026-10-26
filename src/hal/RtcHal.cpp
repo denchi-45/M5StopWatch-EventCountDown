@@ -6,9 +6,9 @@
 namespace cd {
 
 namespace {
-// time_t is 32-bit on Arduino-ESP32 2.x (IDF 4.4), so the libc clock cannot
-// hold instants after 2038-01-19 while the app accepts dates up to 2099.
-// The wall clock is therefore kept here as UTC at a monotonic base.
+// The wall clock is kept here as UTC at a monotonic base rather than in libc:
+// it began when time_t was 32-bit (Arduino-ESP32 2.x), and esp_timer keeps
+// counting through light sleep. IDF 5 time_t is 64-bit, so libc mirrors it.
 int64_t g_baseUtcUs = 0;
 int64_t g_baseMonoUs = 0;
 }  // namespace

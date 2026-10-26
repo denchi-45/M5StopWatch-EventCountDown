@@ -1,5 +1,6 @@
 #include "App.h"
 #include <esp_random.h>
+#include <cstdio>
 #include "../hal/LauncherBridge.h"
 #include "../services/JsonCodec.h"
 #include "../services/WebConfigServer.h"
@@ -12,6 +13,18 @@ namespace cd {
 namespace {
 App g_app;
 constexpr int64_t kFrameMinMs = 40;
+// Input is sampled this often while anything is held, and for a while after an
+// interrupt or a release (debouncing, long presses, the Launcher's A+B hold).
+constexpr uint32_t kInputPollMs = 10;
+constexpr int64_t kInputFollowMs = 150;
+// Without input interrupts presses are only seen by polling.
+constexpr uint32_t kNoWakePollMs = 20;
+// Nothing waits longer than this; with the radio on, its timers and the NTP
+// results are polled more often.
+constexpr uint32_t kMaxIdleMs = 1000;
+constexpr uint32_t kRadioIdleMs = 100;
+// USB power is an I2C read, so it is sampled rather than read every loop.
+constexpr int64_t kUsbReadMs = 2000;
 constexpr uint8_t kDimPercent = 12;
 constexpr int64_t kEventsRetryMs = 10000;
 // A delayed arrival notification is still given if the record is stored this soon.
@@ -22,7 +35,8 @@ App& app() { return g_app; }
 
 // ------------------------------------------------------------------ setup
 
-void App::setup() {
+void App::setup(bool framebuffer, bool inputWake) {
+    inputWake_ = inputWake;
     caps_ = DeviceCapabilities::detect();
     if (caps_.shape == ScreenShape::Rect && caps_.height > caps_.width) {
         M5.Display.setRotation(M5.Display.getRotation() ^ 1);  // landscape
@@ -49,29 +63,27 @@ void App::setup() {
     screens_[int(ScreenId::RtcMode)].reset(new RtcModePage(*this));
     screen_ = screens_[0].get();
 
-    // Full-screen double buffer (PSRAM when present). Without memory for the
-    // background cache, the background is simply redrawn every frame.
-    frame_ = new M5Canvas(&M5.Display);
-    frame_->setColorDepth(16);
-    frame_->setPsram(true);
-    if (!frame_->createSprite(caps_.width, caps_.height)) {
-        delete frame_;
-        frame_ = nullptr;
-    }
-    if (frame_) {
-        bg_ = new M5Canvas(&M5.Display);
-        bg_->setColorDepth(16);
-        bg_->setPsram(true);
-        if (!bg_->createSprite(caps_.width, caps_.height)) {
-            delete bg_;
-            bg_ = nullptr;
-        }
-    }
+    // A panel without a framebuffer of its own gets a full-screen double buffer
+    // (PSRAM when present), so a frame never shows half drawn. Without memory
+    // for the background cache, the background is redrawn with every frame.
+    auto canvas = [this]() -> M5Canvas* {
+        auto* c = new M5Canvas(&M5.Display);
+        c->setColorDepth(16);
+        c->setPsram(true);
+        if (c->createSprite(caps_.width, caps_.height)) return c;
+        delete c;
+        return nullptr;
+    };
+    if (!framebuffer) frame_ = canvas();
+    bg_ = canvas();
     lastInputMs_ = now;
+    readUsb();
+    usbReadAt_ = now;
     applyBrightness();
-    Serial.printf("[App] board=%s %dx%d touch=%d rtc=%d clock=%s events=%u\n", caps_.boardName,
-                  caps_.width, caps_.height, caps_.touch, caps_.rtc, clockSourceText(clock_.source()),
-                  unsigned(repo_.events().size()));
+    std::printf("[App] board=%s %dx%d touch=%d rtc=%d clock=%s events=%u direct=%d bg_cache=%d\n",
+                caps_.boardName, caps_.width, caps_.height, caps_.touch, caps_.rtc,
+                clockSourceText(clock_.source()), unsigned(repo_.events().size()), int(framebuffer),
+                int(bg_ != nullptr));
 }
 
 void App::loadPersisted() {
@@ -135,6 +147,7 @@ void App::loop() {
 
     const InputEvent ev = input_.update(a, b, touch, tx, ty, now);
     const bool activity = ev.type != InputType::None || input_.anyHeld();
+    if (a || b || touch || activity) fastPollUntil_ = now + kInputFollowMs;
     tickPower(now, activity);
     const bool isShort = ev.type == InputType::ShortA || ev.type == InputType::ShortB ||
                          ev.type == InputType::Tap;
@@ -212,10 +225,12 @@ void App::tickClock() {
             eventsRetryAt_ = t + kEventsRetryMs;
         }
     }
+    // A new second alone is drawn by render() (usually as a partial frame); a
+    // new clock generation may change anything on screen.
+    if (!haveTick_ || gen != lastTickGen_ || changed) dirty_ = true;
     haveTick_ = true;
     lastTickUtc_ = now;
     lastTickGen_ = gen;
-    dirty_ = true;
 }
 
 void App::notifyArrival() {
@@ -285,8 +300,12 @@ void App::tickNetwork(int64_t now) {
 
 void App::tickPower(int64_t now, bool activity) {
     if (activity) lastInputMs_ = now;
+    if (now - usbReadAt_ >= kUsbReadMs) {
+        readUsb();
+        usbReadAt_ = now;
+    }
     bool wantDim = settings_.dimAfterSec != 0 && now - lastInputMs_ >= int64_t(settings_.dimAfterSec) * 1000;
-    if (settings_.keepAwakeOnUsb && onExternalPower()) wantDim = false;
+    if (settings_.keepAwakeOnUsb && usbPower_) wantDim = false;
     if (webActive_) wantDim = false;  // credentials must stay readable
     if (wantDim != dimmed_) {
         if (!wantDim && activity) swallowNext_ = true;
@@ -295,10 +314,22 @@ void App::tickPower(int64_t now, bool activity) {
     }
 }
 
-bool App::onExternalPower() {
+void App::readUsb() {
     // charge_unknown (no charger status) does not count as USB power.
-    if (M5.Power.isCharging() == m5::Power_Class::is_charging) return true;
-    return M5.Power.getVBUSVoltage() > 4300;  // negative when not measurable
+    const bool charging = M5.Power.isCharging() == m5::Power_Class::is_charging;
+    const bool vbus = M5.Power.getVBUSVoltage() > 4300;  // negative when not measurable
+    usbPower_ = charging || vbus;
+    // The green LED means charging and nothing else, as in wararyoLauncher:
+    // M5PM1 lights it at power-on whatever the state. PWR_CFG (0x06) bit 4 is
+    // LED_EN; the same register switches the rails, so read-modify-write. A
+    // failed write is sent again at the next reading.
+    if (M5.getBoard() != m5::board_t::board_M5StopWatch) return;
+    const bool led = charging && vbus;
+    if (int(led) == statusLed_) return;
+    constexpr uint8_t kPm1 = 0x6e, kPwrCfg = 0x06, kLedEn = 0x10;
+    const bool ok = led ? M5.In_I2C.bitOn(kPm1, kPwrCfg, kLedEn, 100000)
+                        : M5.In_I2C.bitOff(kPm1, kPwrCfg, kLedEn, 100000);
+    if (ok) statusLed_ = led;
 }
 
 void App::applyBrightness() {
@@ -527,53 +558,144 @@ const char* App::toastText() const { return toastUntil_ ? toast_.c_str() : nullp
 
 // ------------------------------------------------------------------ rendering
 
+int64_t App::msToNextSecond() const {
+    const int64_t ms = clock_.valid() ? clock_.nowUtcMs() : monoMs();
+    return 1000 - ((ms % 1000) + 1000) % 1000;
+}
+
+// Frames come in two kinds. A full frame redraws everything; it follows any
+// change other than time (input, navigation, toasts, data, a new background
+// or content key). When only the second changed, the screen's liveRect() is
+// redrawn alone (background and the whole draw() into a canvas of that area,
+// so it matches a full frame pixel for pixel) and only that area is
+// transferred. Screens that do not change with time get no frame.
+// tools/preview checks the partial frames against full ones.
 void App::render() {
     const int64_t now = monoMs();
     const int64_t sec = clock_.valid() ? clock_.nowUtc() : now / 1000;
-    if (sec != lastDrawnSecond_) dirty_ = true;
-    if (!dirty_ || now - lastFrameMs_ < kFrameMinMs) return;
+    const bool tick = sec != lastDrawnSecond_;
+    if ((!dirty_ && !tick) || now - lastFrameMs_ < kFrameMinMs) return;
+
+    const Layout l = screen_->layout();
+    const uint32_t key = screen_->backgroundKey(), content = screen_->contentKey();
+    const bool bgChanged = !bgValid_ || key != bgKey_ || bgScreen_ != currentId_;
+    const char* toastMsg = toastText();
+    bool full = dirty_ || bgChanged || content != contentKey_ || (toastMsg != nullptr) != toastShown_;
+    Rect live;
+    if (!full) {
+        if (!screen_->ticks()) {
+            lastDrawnSecond_ = sec;
+            return;
+        }
+        full = toastMsg || !screen_->liveRect(live);
+    }
     dirty_ = false;
     lastDrawnSecond_ = sec;
     lastFrameMs_ = now;
+    contentKey_ = content;
+    toastShown_ = toastMsg != nullptr;
 
-    const Layout l = screen_->layout();
-    const uint32_t key = screen_->backgroundKey();
-    LovyanGFX* target = frame_ ? static_cast<LovyanGFX*>(frame_) : static_cast<LovyanGFX*>(&M5.Display);
-
-    if (bg_) {
-        if (!bgValid_ || key != bgKey_ || bgScreen_ != currentId_) {
-            Painter bp(*bg_, l.scale, l.ox, l.oy);
-            screen_->drawBackground(bp);
-            bgValid_ = true;
-            bgKey_ = key;
-            bgScreen_ = currentId_;
-        }
-        std::memcpy(frame_->getBuffer(), bg_->getBuffer(),
-                    size_t(frame_->width()) * frame_->height() * 2);
-    } else {
-        if (!frame_) M5.Display.startWrite();
-        Painter bp(*target, l.scale, l.ox, l.oy);
+    if (bg_ && bgChanged) {
+        Painter bp(*bg_, l.scale, l.ox, l.oy);
         screen_->drawBackground(bp);
-    }
-    Painter p(*target, l.scale, l.ox, l.oy);
-    screen_->draw(p);
-
-    if (const char* t = toastText()) {
-        // Centre overlay; static (no flashing), dismissed after ~2 s.
-        const float cx = l.designW / 2, cy = l.designH / 2;
-        const float w = std::min(l.designW - 60, p.textWidth(t, fontset::small, 1) + 60);
-        const Rect r{cx - w / 2, cy - 22, w, 44};
-        hud::frame(p, r, 12, 2, true);
-        p.text(t, cx, cy, middle_center, fontset::small, 1, toastError_ ? pal::amber : pal::text);
+        bgValid_ = true;
+        bgKey_ = key;
+        bgScreen_ = currentId_;
     }
 
-    if (frame_) {
-        M5.Display.startWrite();
-        frame_->pushSprite(0, 0);
-        M5.Display.endWrite();
+    LovyanGFX* target = frame_ ? static_cast<LovyanGFX*>(frame_) : static_cast<LovyanGFX*>(&M5.Display);
+    int cx = 0, cy = 0;
+    if (!full) {
+        // The live area in panel pixels, with a pixel of margin for rounding.
+        const Painter m(*target, l.scale, l.ox, l.oy);
+        cx = m.X(live.x) - 1;
+        cy = m.Y(live.y) - 1;
+        full = !liveCanvas(m.X(live.x + live.w) - cx + 2, m.Y(live.y + live.h) - cy + 2);
+    }
+
+    M5.Display.startWrite();
+    if (full) {
+        if (bg_) {
+            bg_->pushSprite(target, 0, 0);
+        } else {
+            Painter bp(*target, l.scale, l.ox, l.oy);
+            screen_->drawBackground(bp);
+        }
+        Painter p(*target, l.scale, l.ox, l.oy);
+        screen_->draw(p);
+        if (toastMsg) {
+            // Centre overlay; static (no flashing), dismissed after ~2 s.
+            const float tx = l.designW / 2, ty = l.designH / 2;
+            const float w = std::min(l.designW - 60, p.textWidth(toastMsg, fontset::small, 1) + 60);
+            const Rect r{tx - w / 2, ty - 22, w, 44};
+            hud::frame(p, r, 12, 2, true);
+            p.text(toastMsg, tx, ty, middle_center, fontset::small, 1, toastError_ ? pal::amber : pal::text);
+        }
+        if (frame_) frame_->pushSprite(&M5.Display, 0, 0);
     } else {
-        M5.Display.endWrite();
+        // Drawn into a canvas of exactly the live area, not through a clip
+        // rectangle: M5GFX's drawWideLine() replaces the clip with its own
+        // bounds and clears it afterwards, so later drawing would leak out.
+        if (bg_) {
+            bg_->pushSprite(live_, -cx, -cy);
+        } else {
+            Painter bp(*live_, l.scale, l.ox - cx, l.oy - cy);
+            screen_->drawBackground(bp);
+        }
+        Painter p(*live_, l.scale, l.ox - cx, l.oy - cy);
+        screen_->draw(p);
+        live_->pushSprite(target, cx, cy);
+        if (frame_) live_->pushSprite(&M5.Display, cx, cy);
     }
+    // A framebuffer panel transfers only the area written since startWrite().
+    M5.Display.endWrite();
+}
+
+bool App::liveCanvas(int w, int h) {
+    if (live_ && live_->width() == w && live_->height() == h) return true;
+    if (!live_) {
+        live_ = new M5Canvas(&M5.Display);
+        live_->setColorDepth(16);
+    }
+    live_->deleteSprite();
+    // Small enough for internal RAM, which draws faster than PSRAM.
+    live_->setPsram(false);
+    if (live_->createSprite(w, h)) return true;
+    live_->setPsram(true);
+    return live_->createSprite(w, h) != nullptr;
+}
+
+// ------------------------------------------------------------------ waiting
+
+uint32_t App::idleMs() {
+    const int64_t now = monoMs();
+    if (!inputWake_) return kNoWakePollMs;
+    if (now < fastPollUntil_ || input_.anyHeld()) return kInputPollMs;
+    int64_t wait = webActive_ || net_.radioOn() ? kRadioIdleMs : kMaxIdleMs;
+    auto until = [&](int64_t deadline) {
+        if (deadline) wait = std::min(wait, deadline - now);
+    };
+    if (dirty_) until(lastFrameMs_ + kFrameMinMs);
+    // The next second, when the screen shows time (or may change state).
+    wait = std::min(wait, msToNextSecond() + 1);
+    until(toastUntil_);
+    until(vibrateUntil_);
+    until(secondBeepAt_);
+    until(selectionSaveAt_);
+    if (eventsSaveRetry_) until(eventsRetryAt_);
+    if (webActive_) until(apDeadline_);
+    if (web_ && web_->exitRequested()) until(web_->exitAt());
+    if (!dimmed_ && settings_.dimAfterSec != 0)
+        until(lastInputMs_ + int64_t(settings_.dimAfterSec) * 1000);
+    return uint32_t(std::max<int64_t>(1, wait));
+}
+
+bool App::lightSleepAllowed() const {
+    // Only where the wake-up is certain (input interrupts) and nothing needs
+    // the CPU or a peripheral between frames: the USB console needs the bus,
+    // the radio its own timing, the speaker and the vibration motor their output.
+    return inputWake_ && dimmed_ && !usbPower_ && !webActive_ && !net_.radioOn() && !vibrateUntil_ &&
+           !secondBeepAt_ && !M5.Speaker.isPlaying() && !input_.anyHeld() && monoMs() >= fastPollUntil_;
 }
 
 }  // namespace cd

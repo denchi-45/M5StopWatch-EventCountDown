@@ -43,15 +43,53 @@ void roundCommonBackground(Painter& p, const char* title) {
 
 Layout CountdownScreen::layout() const { return LayoutPolicy::countdown(app.caps()); }
 
+// The ring is part of the cached background: ~200 fillArc calls cost ~0.5 s
+// on the 466 panel, and the lit count changes only 52 times per event.
+int CountdownScreen::ringLit() const {
+    const CountdownView v = const_cast<App&>(app).countdown();
+    if (v.state == CountdownState::NoEvents || v.state == CountdownState::TimeNotSet) return -1;
+    return v.litSegments;
+}
+
 uint32_t CountdownScreen::backgroundKey() const {
-    return uint32_t(const_cast<App&>(app).countdown().state == CountdownState::NoEvents) |
-           uint32_t(const_cast<App&>(app).countdown().state == CountdownState::TimeNotSet) << 1;
+    const CountdownState s = const_cast<App&>(app).countdown().state;
+    return uint32_t(s == CountdownState::NoEvents) | uint32_t(s == CountdownState::TimeNotSet) << 1 |
+           uint32_t(ringLit() & 0xFF) << 8;
+}
+
+bool CountdownScreen::ticks() const {
+    const CountdownState s = const_cast<App&>(app).countdown().state;
+    return s != CountdownState::NoEvents && s != CountdownState::TimeNotSet;
+}
+
+// The HH:MM:SS frames of drawRoundCountdown() / drawRectCountdown().
+bool CountdownScreen::liveRect(Rect& r) const {
+    r = layout().round ? Rect{80, 284, 306, 66} : Rect{70, 184, 180, 34};
+    return true;
+}
+
+uint32_t CountdownScreen::contentKey() const {
+    const CountdownView v = const_cast<App&>(app).countdown();
+    uint32_t h = 2166136261u;  // FNV-1a
+    auto mix = [&h](const void* data, size_t n) {
+        for (size_t i = 0; i < n; ++i) h = (h ^ static_cast<const uint8_t*>(data)[i]) * 16777619u;
+    };
+    mix(&v.state, sizeof v.state);
+    mix(&v.days, sizeof v.days);
+    mix(&v.litSegments, sizeof v.litSegments);
+    if (const Event* e = app.events().selected()) {
+        mix(e->id.data(), e->id.size());
+        mix(e->name.data(), e->name.size());
+    }
+    return h;
 }
 
 void CountdownScreen::drawBackground(Painter& p) {
     const CountdownState s = app.countdown().state;
     if (layout().round) {
         roundCommonBackground(p, titleFor(s));
+        ProgressRing::drawRing(p, C, C, LayoutPolicy::kRingMid, LayoutPolicy::kRingWidth, kRingSegments,
+                               ringLit());
         return;
     }
     p.clear(pal::bg);
@@ -74,8 +112,6 @@ void CountdownScreen::draw(Painter& p) {
 
 void CountdownScreen::drawRoundCountdown(Painter& p) {
     const CountdownView v = app.countdown();
-    ProgressRing::drawRing(p, C, C, LayoutPolicy::kRingMid, LayoutPolicy::kRingWidth, kRingSegments,
-                           v.litSegments);
 
     // EVENT : name
     const Rect ev{74, 133, 318, 28};
@@ -141,7 +177,6 @@ void CountdownScreen::drawRoundCountdown(Painter& p) {
 }
 
 void CountdownScreen::drawRoundNoEvents(Painter& p) {
-    ProgressRing::drawRing(p, C, C, LayoutPolicy::kRingMid, LayoutPolicy::kRingWidth, kRingSegments, -1);
     hud::stripes(p, 72, 132, 322, 8);
     p.text("YOUR COUNTDOWN STARTS HERE", C, 168, middle_center, fontset::small, 1, pal::text);
     p.line(68, 190, 210, 190, 1.5f, pal::frame);
@@ -164,7 +199,6 @@ void CountdownScreen::drawRoundNoEvents(Painter& p) {
 }
 
 void CountdownScreen::drawRoundTimeNotSet(Painter& p) {
-    ProgressRing::drawRing(p, C, C, LayoutPolicy::kRingMid, LayoutPolicy::kRingWidth, kRingSegments, -1);
     const Rect src{78, 132, 310, 28};
     hud::frame(p, src, 9, 1, false);
     p.text("CLOCK SOURCE :", src.x + 36, src.cy(), middle_left, fontset::small, 1, pal::text);

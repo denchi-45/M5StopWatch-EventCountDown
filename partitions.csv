@@ -1,0 +1,7 @@
+# Standalone layout (env:m5stopwatch-standalone).
+# Never flash this table onto a MultiFirm device: a guest slot uses the host's.
+# Name, Type, SubType, Offset, Size, Flags
+nvs, data, nvs, 0x9000, 0x5000,
+phy_init, data, phy, 0xe000, 0x1000,
+factory, app, factory, 0x10000, 0xC80000,
+coredump, data, coredump, 0xC90000, 0x10000,

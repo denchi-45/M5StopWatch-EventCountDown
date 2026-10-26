@@ -1,6 +1,7 @@
 #pragma once
 // STA (home Wi-Fi, for NTP) and SoftAP (setup web UI) management (spec 6.1, 7).
-// Never blocks: connection attempts are timed by WifiScheduler.
+// Never blocks: connection attempts are timed by WifiScheduler. The radio is
+// initialised on first use and stopped whenever neither link is wanted.
 #include <cstdint>
 #include <string>
 #include "../core/SyncScheduler.h"
@@ -32,6 +33,8 @@ public:
     std::string apSsid() const { return apSsid_; }
     std::string apPassword() const { return apPass_; }
     std::string apIp() const;
+    // The radio is on (STA wanted or the setup AP up): no light sleep then.
+    bool radioOn() const { return mode_ != 0; }
 
 private:
     SettingsStore* store_ = nullptr;
@@ -42,6 +45,9 @@ private:
     bool wasConnected_ = false;
     int64_t attemptStartedMs_ = 0;
     std::string apSsid_, apPass_;
+    bool inited_ = false;
+    uint8_t mode_ = 0;  // wifi_mode_t currently applied (0 = off)
+    bool initRadio();
     void applyMode();
     void beginAttempt();
 };

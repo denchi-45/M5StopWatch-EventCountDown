@@ -1,7 +1,8 @@
 #include "NtpSync.h"
-#include <WiFi.h>
-#include <WiFiUdp.h>
 #include <esp_random.h>
+#include <lwip/netdb.h>
+#include <lwip/sockets.h>
+#include <unistd.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/queue.h>
 #include <freertos/task.h>
@@ -27,15 +28,30 @@ void fail(NtpResult& r, const char* msg) {
     std::strncpy(r.error, msg, sizeof r.error - 1);
 }
 
+// Closes the UDP socket on every return path.
+struct Socket {
+    int fd = -1;
+    ~Socket() {
+        if (fd >= 0) close(fd);
+    }
+};
+
 void query(const Request& req, NtpResult& r) {
     r.generation = req.generation;
     const int64_t deadline = req.startedMs + NtpSync::kTimeoutMs;
-    IPAddress ip;
-    if (!WiFi.hostByName(req.server, ip)) return fail(r, "DNS lookup failed");
+    addrinfo hints{};
+    hints.ai_family = AF_INET;
+    hints.ai_socktype = SOCK_DGRAM;
+    addrinfo* res = nullptr;
+    if (getaddrinfo(req.server, "123", &hints, &res) != 0 || !res) return fail(r, "DNS lookup failed");
+    sockaddr_in server;
+    std::memcpy(&server, res->ai_addr, sizeof server);
+    freeaddrinfo(res);
     if (monoMs() >= deadline) return fail(r, "timeout");
 
-    WiFiUDP udp;
-    if (!udp.begin(0)) return fail(r, "UDP socket failed");
+    Socket sock;
+    sock.fd = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+    if (sock.fd < 0) return fail(r, "UDP socket failed");
     uint8_t pkt[48] = {0};
     pkt[0] = 0x23;  // LI 0, version 4, mode 3 (client)
     // Random transmit timestamp; a genuine reply echoes it as "originate".
@@ -45,34 +61,32 @@ void query(const Request& req, NtpResult& r) {
         pkt[44 + i] = uint8_t(nonceLo >> (24 - 8 * i));
     }
     const int64_t sentMs = monoMs();
-    if (!udp.beginPacket(ip, 123) || udp.write(pkt, sizeof pkt) != sizeof pkt || !udp.endPacket()) {
-        udp.stop();
+    if (sendto(sock.fd, pkt, sizeof pkt, 0, reinterpret_cast<const sockaddr*>(&server), sizeof server) !=
+        int(sizeof pkt))
         return fail(r, "send failed");
+    for (int64_t now = monoMs(); now < deadline; now = monoMs()) {
+        // Wait in the socket rather than polling; capped so the deadline holds.
+        const int64_t waitMs = deadline - now < 200 ? deadline - now : 200;
+        timeval tv;
+        tv.tv_sec = 0;
+        tv.tv_usec = long(waitMs * 1000);
+        setsockopt(sock.fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof tv);
+        uint8_t in[48];
+        const int n = recv(sock.fd, in, sizeof in, 0);
+        if (n < 48) continue;
+        const int64_t rxMs = monoMs();
+        const uint8_t li = in[0] >> 6, mode = in[0] & 7, stratum = in[1];
+        if (mode != 4 || li == 3 || stratum == 0 || stratum > 15 || be32(in + 24) != nonceHi ||
+            be32(in + 28) != nonceLo)
+            continue;  // not our answer / kiss-of-death
+        const uint32_t sec = be32(in + 40), frac = be32(in + 44);
+        const int64_t txMs = ntpToUnixMs(sec, frac);
+        if (!inUtcRange(txMs / 1000)) return fail(r, "server time out of range");
+        r.ok = true;
+        r.utcMs = txMs + (rxMs - sentMs) / 2;  // half the round trip
+        r.monoMsAtRx = rxMs;
+        return;
     }
-    while (monoMs() < deadline) {
-        if (udp.parsePacket() >= 48) {
-            uint8_t in[48];
-            udp.read(in, sizeof in);
-            const int64_t rxMs = monoMs();
-            const uint8_t li = in[0] >> 6, mode = in[0] & 7, stratum = in[1];
-            if (mode != 4 || li == 3 || stratum == 0 || stratum > 15 ||
-                be32(in + 24) != nonceHi || be32(in + 28) != nonceLo)
-                continue;  // not our answer / kiss-of-death
-            const uint32_t sec = be32(in + 40), frac = be32(in + 44);
-            const int64_t txMs = ntpToUnixMs(sec, frac);
-            if (!inUtcRange(txMs / 1000)) {
-                udp.stop();
-                return fail(r, "server time out of range");
-            }
-            udp.stop();
-            r.ok = true;
-            r.utcMs = txMs + (rxMs - sentMs) / 2;  // half the round trip
-            r.monoMsAtRx = rxMs;
-            return;
-        }
-        vTaskDelay(pdMS_TO_TICKS(20));
-    }
-    udp.stop();
     fail(r, "timeout");
 }
 }  // namespace

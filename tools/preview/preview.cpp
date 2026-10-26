@@ -12,7 +12,6 @@
 #include "../../src/ui/HudWidgets.h"
 #include "../../src/ui/SettingsScreen.h"
 
-class WebServer {};
 
 namespace cd {
 
@@ -170,6 +169,62 @@ static void shoot(Screen& s, const char* file, bool round, int w, int h) {
     std::printf("%s (%zu bytes)\n", file, len);
 }
 
+// The partial frames of App::render() against full frames: from `start`, each
+// second is drawn as App draws it (only liveRect(), into a canvas of that
+// area, while the keys stay the same) and compared pixel by pixel with a full
+// redraw of that second.
+static bool partialMatchesFull(Screen& s, int w, int h, int64_t start, int seconds, const char* label) {
+    const Layout l = s.layout();
+    M5Canvas bg, frame, ref, live;
+    for (M5Canvas* c : {&bg, &frame, &ref, &live}) c->setColorDepth(16);
+    for (M5Canvas* c : {&bg, &frame, &ref}) c->createSprite(w, h);
+    auto full = [&](M5Canvas& dst) {
+        Painter bp(bg, l.scale, l.ox, l.oy);
+        s.drawBackground(bp);
+        bg.pushSprite(&dst, 0, 0);
+        Painter p(dst, l.scale, l.ox, l.oy);
+        s.draw(p);
+    };
+    setNow(start);
+    full(frame);
+    uint32_t bgKey = s.backgroundKey(), content = s.contentKey();
+    int partial = 0, mismatched = 0;
+    for (int i = 1; i <= seconds; ++i) {
+        setNow(start + i);
+        Rect r;
+        if (s.backgroundKey() == bgKey && s.contentKey() == content && s.ticks() && s.liveRect(r)) {
+            const Painter m(frame, l.scale, l.ox, l.oy);
+            const int cx = m.X(r.x) - 1, cy = m.Y(r.y) - 1;
+            live.createSprite(m.X(r.x + r.w) - cx + 2, m.Y(r.y + r.h) - cy + 2);
+            bg.pushSprite(&live, -cx, -cy);
+            Painter p(live, l.scale, l.ox - cx, l.oy - cy);
+            s.draw(p);
+            live.pushSprite(&frame, cx, cy);
+            ++partial;
+        } else {
+            full(frame);
+            bgKey = s.backgroundKey();
+            content = s.contentKey();
+        }
+        full(ref);
+        const auto* a = static_cast<const uint16_t*>(frame.getBuffer());
+        const auto* b = static_cast<const uint16_t*>(ref.getBuffer());
+        int diff = 0, x0 = w, y0 = h, x1 = -1, y1 = -1;
+        for (int k = 0; k < w * h; ++k) {
+            if (a[k] == b[k]) continue;
+            ++diff;
+            x0 = std::min(x0, k % w), x1 = std::max(x1, k % w);
+            y0 = std::min(y0, k / w), y1 = std::max(y1, k / w);
+        }
+        if (diff) {
+            ++mismatched;
+            std::printf("  %s +%ds: %d pixels differ in x %d..%d y %d..%d\n", label, i, diff, x0, x1, y0, y1);
+        }
+    }
+    std::printf("partial check %s: %d frames, %d partial, %d mismatched\n", label, seconds, partial, mismatched);
+    return mismatched == 0;
+}
+
 int main(int argc, char** argv) {
     const std::string out = argc > 1 ? argv[1] : ".";
     auto path = [&](const char* n) { return (out + "/" + n).c_str(); };
@@ -181,7 +236,7 @@ int main(int argc, char** argv) {
     g.caps_.buttons = 2;
     g.caps_.rtc = g.caps_.speaker = g.caps_.vibration = true;
     g.caps_.boardName = "M5StopWatch";
-    g.net_.apSsid_ = "M5-Countdown-4F2A";
+    g.net_.apSsid_ = "EventCountDown-4F2A";
     g.net_.apPass_ = "K7QD-M2XT-9PRH";
 
     CountdownScreen cs(g);
@@ -256,6 +311,18 @@ int main(int argc, char** argv) {
     g.caps_.height = 135;
     g.caps_.compact = true;
     shoot(cs, (f = out + "/12b_compact_240x135.png").c_str(), false, 240, 135);
+
+    // Partial frames: across minute, hour and day boundaries, into the final
+    // hour and past the arrival, on the round and the rectangular layout.
+    bool ok = true;
+    g.caps_.compact = false;
+    ok &= partialMatchesFull(cs, 320, 240, t1 - (2 * 86400 + 65), 130, "rect 320x240 (day boundary)");
+    g.caps_.shape = ScreenShape::Round;
+    g.caps_.width = g.caps_.height = 466;
+    ok &= partialMatchesFull(cs, 466, 466, t1 - (8 * 86400 + 3605), 70, "round (hour boundary)");
+    ok &= partialMatchesFull(cs, 466, 466, t1 - (3 * 86400 + 70), 140, "round (day boundary)");
+    ok &= partialMatchesFull(cs, 466, 466, t1 - 3605, 10, "round (final hour)");
+    ok &= partialMatchesFull(cs, 466, 466, t1 - 5, 10, "round (arrival)");
     (void)path;
-    return 0;
+    return ok ? 0 : 1;
 }

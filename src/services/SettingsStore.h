@@ -43,6 +43,8 @@ private:
     bool getBlob(const char* key, std::string& out);
     bool putStringVerified(const char* key, const std::string& value);
     bool putI64Verified(const char* key, int64_t v);
+    std::string getString(const char* key);  // "" when missing
+    int64_t getI64(const char* key);         // 0 when missing
 };
 
 }  // namespace cd

@@ -1,0 +1,25 @@
+# Common settings; ESP32-S3 (M5StopWatch) values are in sdkconfig.defaults.esp32s3.
+CONFIG_ESPTOOLPY_FLASHSIZE_16MB=y
+CONFIG_ESPTOOLPY_FLASHMODE_DIO=y
+CONFIG_ESPTOOLPY_FLASHFREQ_80M=y
+CONFIG_PARTITION_TABLE_CUSTOM=y
+CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"
+CONFIG_PARTITION_TABLE_OFFSET=0x8000
+CONFIG_SPIRAM=y
+CONFIG_SPIRAM_SPEED_80M=y
+# Wi-Fi and lwIP buffers may live in PSRAM; internal RAM stays for DMA and stacks.
+CONFIG_SPIRAM_TRY_ALLOCATE_WIFI_LWIP=y
+CONFIG_FREERTOS_HZ=1000
+# The UI (App) runs on the main task: rendering, JSON and NVS share its stack.
+CONFIG_ESP_MAIN_TASK_STACK_SIZE=16384
+CONFIG_COMPILER_OPTIMIZATION_PERF=y
+# Power management is app-side only (the MultiFirm bootloader stays the host's):
+# DFS 240/80 MHz and tickless idle always; automatic light sleep only while the
+# App releases its lock (dimmed, on battery, radio off; see hal/PowerHal.h).
+CONFIG_PM_ENABLE=y
+CONFIG_FREERTOS_USE_TICKLESS_IDLE=y
+# Browsers send more header bytes than the 512 default (User-Agent, Accept...).
+CONFIG_HTTPD_MAX_REQ_HDR_LEN=1024
+CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE=n
+CONFIG_SECURE_BOOT=n
+CONFIG_SECURE_FLASH_ENC_ENABLED=n
