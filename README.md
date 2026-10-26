@@ -18,8 +18,29 @@
 |---|---|
 | 本体 | M5StopWatch（ESP32-S3、466×466 円形 AMOLED、16 MB Flash） |
 | ケーブル | データ通信できる USB-C ケーブル |
-| ビルド | [PlatformIO](https://platformio.org/)（VS Code 拡張または PlatformIO Core CLI）。ESP-IDF 5.5 とライブラリは初回ビルド時に自動で取得される |
+| ビルド | [PlatformIO](https://platformio.org/)（VS Code 拡張または PlatformIO Core CLI）。ESP-IDF 5.5 とライブラリは初回ビルド時に自動で取得される（Releases の bin を使う場合は不要） |
 | 書き込み（Launcher 導入機） | Python 3.11 + esptool 4.12.0（[M5StopWatch-MultiFirm](https://github.com/wararyo/M5StopWatch-MultiFirm) の PC ツールが使う） |
+
+## ダウンロード（ビルドしない場合）
+
+Launcher 導入済みの本体に入れるだけなら、ビルドせずに [Releases](https://github.com/denchi-45/M5StopWatch_Coundown/releases)
+の `firmware.bin`（ゲストスロット用）を使えます。
+
+1. [Releases](https://github.com/denchi-45/M5StopWatch_Coundown/releases) から使いたい版を開き、Assets の `firmware.bin` をダウンロードします。
+2. リリースノートの SHA-256 と一致するか確認します。
+
+   ```powershell
+   Get-FileHash "$HOME\Downloads\firmware.bin" -Algorithm SHA256   # Windows
+   ```
+
+   ```sh
+   shasum -a 256 ~/Downloads/firmware.bin                          # macOS / Linux
+   ```
+
+3. 下の「[A. Launcher 導入済みの本体](#a-launcher-導入済みの本体ゲストスロットに入れる)」の手順で書き込みます
+   （`$bin` / `bin` をダウンロードしたファイルのパスにします）。
+
+Releases の bin はゲストスロット専用です。Launcher を使わない本体（B）には、下の手順でソースからビルドして書き込んでください。
 
 ## ビルド
 
@@ -54,7 +75,7 @@ Launcher の導入方法は [wararyoLauncher](https://github.com/wararyo/M5StopW
 
 **1. MultiFirm の PC ツールを準備する（初回のみ）**
 
-このリポジトリと同じ階層に clone します。
+このリポジトリと同じ階層に clone します（Releases の bin だけを使う場合は任意の場所で構いません）。
 
 ```powershell
 cd ..
@@ -82,6 +103,8 @@ tools/.venv/bin/python -m pip install -r tools/requirements.txt
 **3. ゲストスロットに書き込む**
 
 EventCountDown のフォルダで実行します（`COM11` とスロット番号 `2` は環境に合わせて変更。スロットは 1〜3）。
+Releases からダウンロードした bin を使う場合は、`$bin` / `bin` をそのファイルのパス（例: `$HOME\Downloads\firmware.bin`）に、
+`$mf` / `mf` を M5StopWatch-MultiFirm を clone した場所に合わせてください。
 
 ```powershell
 $mf = "..\M5StopWatch-MultiFirm\tools\multifirm.ps1"
