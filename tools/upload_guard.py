@@ -1,5 +1,5 @@
-# Copied unchanged from M5StopWatch-MultiFirm v1.1.0
-# (https://github.com/wararyo/M5StopWatch-MultiFirm).
+# Copied from M5StopWatch-MultiFirm v1.1.0 with this copyright header added;
+# the rest of the file is unchanged (https://github.com/wararyo/M5StopWatch-MultiFirm).
 # Copyright (c) 2026 wararyo
 # SPDX-License-Identifier: MIT
 # Full license text: licenses/M5StopWatch-MultiFirm-LICENSE.txt
