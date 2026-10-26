@@ -79,7 +79,7 @@ tools/multifirm.sh install --slot 2 "$bin" --name "EventCountDown" --port /dev/t
 
 - 指定したスロットに入っていたアプリは上書きされます。他のスロット・設定（NVS）・起動先は変わりません。
 - 書き込み後は Launcher が起動するので、一覧から **EventCountDown** を選んでください。
-- 実機なしでの検査: `python tools\multifirm.py inspect <bin>`
+- 実機なしでの検査: `python tools/multifirm.py inspect <bin>`（Windows でも `/` 区切りで動きます）
 
 ## Launcher への戻り方
 
@@ -88,8 +88,15 @@ tools/multifirm.sh install --slot 2 "$bin" --name "EventCountDown" --port /dev/t
 | どの画面でも **KEY A + KEY B を 1.6 秒押し続ける** | Launcher に戻る（途中で画面に触れると取り消し。アプリ側の操作は発火しない） |
 | **KEY B を押しながら電源を入れる** | アプリを起動せず Launcher へ（起動しない・固まったときの脱出用） |
 
-ゲストから戻れなくなったときは、MultiFirm のフォルダで `tools\multifirm.ps1 recover --port COM11 --execute`
-（詳細は MultiFirm のツール説明）。
+ゲストから戻れなくなったときは、MultiFirm のフォルダで次を実行します（詳細は MultiFirm のツール説明）。
+
+```powershell
+tools\multifirm.ps1 recover --port COM11 --execute
+```
+
+```sh
+tools/multifirm.sh recover --port /dev/ttyACM0 --execute   # macOS / Linux
+```
 
 ## 注意
 
