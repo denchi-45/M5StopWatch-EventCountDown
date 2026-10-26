@@ -6,6 +6,8 @@ cd "$(dirname "$0")/.."
 AJ=$(ls -d .pio/libdeps/*/ArduinoJson/src 2>/dev/null | head -n 1)
 [ -n "$AJ" ] || { echo "ArduinoJson not found: run 'pio pkg install' first" >&2; exit 2; }
 mkdir -p .pio/host-tests
+# Drop a binary left by another OS (e.g. a WSL ELF that would shadow run_tests.exe).
+rm -f .pio/host-tests/run_tests .pio/host-tests/run_tests.exe
 g++ -std=c++17 -O1 -Wall -Wextra -Wno-unused-parameter -I"$AJ" \
     tests/test_main.cpp \
     src/core/CountdownEngine.cpp src/core/EventRepository.cpp src/core/Utf8.cpp \
