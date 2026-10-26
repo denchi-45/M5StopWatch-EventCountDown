@@ -2,6 +2,12 @@
 
 楽しみなイベントまでの残り時間を、赤黒の SF 警報装置風の画面で数える **M5StopWatch** 用ファームウェアです。
 
+| カウントダウン | 最後の 1 時間 | 設定メニュー | Web 設定 |
+|:---:|:---:|:---:|:---:|
+| <img src="docs/images/countdown.png" width="200" alt="カウントダウン画面"> | <img src="docs/images/final_countdown.png" width="200" alt="最後の 1 時間の画面"> | <img src="docs/images/settings_menu.png" width="200" alt="設定メニュー"> | <img src="docs/images/web_config.png" width="200" alt="Web 設定の接続情報画面"> |
+
+<sub>画面はプレビュー用ハーネス（`tools/preview/`）で描画したもので、実機の写真ではありません。イベント名・SSID・パスワードはサンプルです。</sub>
+
 - 最大 10 件のイベントを登録し、ボタンで切り替えて表示（日数 + HH:MM:SS の 7 セグ表示と 52 区画の進捗リング）
 - イベントの登録・時刻合わせ・Wi-Fi 設定は、本体の Wi-Fi アクセスポイントにスマホ / PC から接続して Web 画面で行う
 - 家庭用 Wi-Fi を登録すると NTP で自動的に時刻を補正
