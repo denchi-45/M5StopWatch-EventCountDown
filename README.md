@@ -53,7 +53,7 @@ USB で接続した M5StopWatch のシリアルポートを確認します。
    pip install esptool
    ```
 
-2. [Releases](https://github.com/denchi-45/M5StopWatch_Countdown/releases) から使いたい版を開き、Assets の
+2. [Releases](https://github.com/denchi-45/M5StopWatch-EventCountDown/releases) から使いたい版を開き、Assets の
    `EventCountDown-<版>-standalone.bin` をダウンロードします。
 3. リリースノートの SHA-256 と一致するか確認します。
 
@@ -84,8 +84,8 @@ USB で接続した M5StopWatch のシリアルポートを確認します。
 ## 書き込み（ソースからビルドする）
 
 ```sh
-git clone https://github.com/denchi-45/M5StopWatch_Countdown.git
-cd M5StopWatch_Countdown
+git clone https://github.com/denchi-45/M5StopWatch-EventCountDown.git
+cd M5StopWatch-EventCountDown
 pio run -t upload                           # ビルドして書き込む（ポートは自動検出）
 pio run -t upload --upload-port COM11       # ポートを指定する場合
 ```
