@@ -149,5 +149,7 @@ Launcher に入れた場合の追加の操作（Launcher への戻り方）は [
 
 [MIT License](LICENSE)
 
-依存ライブラリ（M5Unified / M5GFX / ArduinoJson / ESP-IDF、Launcher 版では M5StopWatch-MultiFirm）はそれぞれのライセンスに従います。
-`tools/upload_guard.py` は M5StopWatch-MultiFirm の配布物のコピーです。
+ファームウェアに組み込まれる依存ライブラリ（M5Unified / M5GFX / ArduinoJson / ESP-IDF、Launcher 版では M5StopWatch-MultiFirm）と
+フォント（IPAex ゴシック由来・FreeFont 由来）は、それぞれのライセンスに従います。
+著作権表示とライセンス全文は [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) と [`licenses/`](licenses/) にあります。
+`tools/upload_guard.py` は M5StopWatch-MultiFirm（MIT）の配布物のコピーです。
