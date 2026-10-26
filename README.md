@@ -67,7 +67,7 @@ USB で接続した M5StopWatch のシリアルポートを確認します。
    sha256sum ~/Downloads/EventCountDown-v0.1.0-standalone.bin       # Linux
    ```
 
-4. 元に戻したい場合に備えて、16 MB 全体をバックアップしておくことをおすすめします（数分かかります）。
+4. 元に戻したい場合に備えて、16 MB 全体をバックアップしておくことをおすすめします（1〜2 分かかります）。
 
    ```sh
    esptool --chip esp32s3 --port COM11 read-flash 0 0x1000000 backup.bin
