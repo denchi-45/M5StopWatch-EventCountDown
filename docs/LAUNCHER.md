@@ -22,7 +22,7 @@ Launcher の一覧から起動し、ボタン操作で Launcher に戻れます�
 
 次のどちらかを使います。
 
-- **ダウンロード:** [Releases](https://github.com/denchi-45/M5StopWatch_Coundown/releases) の
+- **ダウンロード:** [Releases](https://github.com/denchi-45/M5StopWatch-EventCountDown/releases) の
   `EventCountDown-<版>-launcher.bin`。リリースノートの SHA-256 と一致するか確認してください。
 - **ビルド:** このリポジトリで
 
@@ -61,7 +61,7 @@ M5StopWatch-MultiFirm のフォルダで実行します。`$bin` / `bin` は手�
 ```powershell
 $bin = "$HOME\Downloads\EventCountDown-v0.1.0-launcher.bin"
 # ソースからビルドした場合（このリポジトリを MultiFirm と同じ階層に clone したとき）:
-# $bin = "..\M5StopWatch_Coundown\.pio\build\m5stopwatch-launcher\firmware.bin"
+# $bin = "..\M5StopWatch-EventCountDown\.pio\build\m5stopwatch-launcher\firmware.bin"
 # 1) 計画を表示（実機に接続しない）
 tools\multifirm.ps1 install --slot 2 $bin --name "EventCountDown" --port COM11
 # 2) 実機を読み取って確認（書き込まない）
@@ -75,7 +75,7 @@ macOS / Linux:
 ```sh
 bin="$HOME/Downloads/EventCountDown-v0.1.0-launcher.bin"
 # ソースからビルドした場合（このリポジトリを MultiFirm と同じ階層に clone したとき）:
-# bin="../M5StopWatch_Coundown/.pio/build/m5stopwatch-launcher/firmware.bin"
+# bin="../M5StopWatch-EventCountDown/.pio/build/m5stopwatch-launcher/firmware.bin"
 tools/multifirm.sh install --slot 2 "$bin" --name "EventCountDown" --port /dev/ttyACM0
 tools/multifirm.sh install --slot 2 "$bin" --name "EventCountDown" --port /dev/ttyACM0 --check-device
 tools/multifirm.sh install --slot 2 "$bin" --name "EventCountDown" --port /dev/ttyACM0 --execute

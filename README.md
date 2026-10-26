@@ -53,7 +53,7 @@ USB で接続した M5StopWatch のシリアルポートを確認します。
    pip install esptool
    ```
 
-2. [Releases](https://github.com/denchi-45/M5StopWatch_Coundown/releases) から使いたい版を開き、Assets の
+2. [Releases](https://github.com/denchi-45/M5StopWatch-EventCountDown/releases) から使いたい版を開き、Assets の
    `EventCountDown-<版>-standalone.bin` をダウンロードします。
 3. リリースノートの SHA-256 と一致するか確認します。
 
@@ -84,8 +84,8 @@ USB で接続した M5StopWatch のシリアルポートを確認します。
 ## 書き込み（ソースからビルドする）
 
 ```sh
-git clone https://github.com/denchi-45/M5StopWatch_Coundown.git
-cd M5StopWatch_Coundown
+git clone https://github.com/denchi-45/M5StopWatch-EventCountDown.git
+cd M5StopWatch-EventCountDown
 pio run -t upload                           # ビルドして書き込む（ポートは自動検出）
 pio run -t upload --upload-port COM11       # ポートを指定する場合
 ```
@@ -149,5 +149,7 @@ Launcher に入れた場合の追加の操作（Launcher への戻り方）は [
 
 [MIT License](LICENSE)
 
-依存ライブラリ（M5Unified / M5GFX / ArduinoJson / ESP-IDF、Launcher 版では M5StopWatch-MultiFirm）はそれぞれのライセンスに従います。
-`tools/upload_guard.py` は M5StopWatch-MultiFirm の配布物のコピーです。
+ファームウェアに組み込まれる依存ライブラリ（M5Unified / M5GFX / ArduinoJson / ESP-IDF、Launcher 版では M5StopWatch-MultiFirm）と
+フォント（IPAex ゴシック由来・FreeFont 由来）は、それぞれのライセンスに従います。
+著作権表示とライセンス全文は [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) と [`licenses/`](licenses/) にあります。
+`tools/upload_guard.py` は M5StopWatch-MultiFirm（MIT）の配布物のコピーです。

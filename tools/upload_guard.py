@@ -1,3 +1,8 @@
+# Copied from M5StopWatch-MultiFirm v1.1.0 with this copyright header added;
+# the rest of the file is unchanged (https://github.com/wararyo/M5StopWatch-MultiFirm).
+# Copyright (c) 2026 wararyo
+# SPDX-License-Identifier: MIT
+# Full license text: licenses/M5StopWatch-MultiFirm-LICENSE.txt
 """Copy into your project as tools/upload_guard.py; use as a PRE extra_script.
 
 Self-contained: it must run before PlatformIO fetches any lib_deps.
