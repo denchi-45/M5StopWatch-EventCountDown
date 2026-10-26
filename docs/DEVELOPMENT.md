@@ -120,9 +120,25 @@ sim/                            PC シミュレータ用の差し替え（KvStor
 
 実機での消費電流・描画時間はまだ測っていない（下記「未検証」）。
 
-## 検証結果（2026-10-24、ESP-IDF 移行後）
+## 検証結果
 
-### 検証済み（実機なし）
+### 実機で検証済み（2026-10-26、単体 `m5stopwatch`）
+
+- ESP-IDF 版の起動、AMOLED の表示、タッチ・長押し・ボタン
+- 設定・イベントの NVS 保存、RX8130CE への書込・読み返し、電源 OFF/ON 後の復元
+  （別のファームウェアから入れ替えた本体では NVS の消去が必要なことがある。README「別のファームウェアから入れ替えた場合」）
+- SoftAP 接続と Web からの設定・イベント編集、STA 接続・NTP 自動補正
+
+### README の書き込み手順（2026-10-27、実機）
+
+- Releases の `EventCountDown-v0.1.0-standalone.bin`：SHA-256 がリリースノートと一致、esptool v5.6.0 の `read-flash`（16 MB、約 80 秒）と
+  `write-flash 0x0` が成功し、起動ログで `EventCountDown` 0.1.0 の起動を確認。イメージの `0x9000`〜`0x10000` は 0xFF なので、
+  書き込み後の NVS は空になる（設定・イベントは消える）
+- NVS 消去：esptool v5 の `erase-region 0x9000 0x5000`、PlatformIO の esptool 4.9 の `erase_region` とも成功
+- ソースから：`pio run -t upload`（COM ポートの自動検出、既定の `m5stopwatch` だけをビルド）と `--upload-port` 指定が成功
+- バックアップ：PlatformIO の esptool 4.9 の `read_flash`（16 MB）も成功するが約 24 分かかる（91.8 kbit/s）
+
+### 検証済み（実機なし、2026-10-24 の ESP-IDF 移行後）
 
 | 項目 | 結果 |
 |---|---|
@@ -137,13 +153,10 @@ sim/                            PC シミュレータ用の差し替え（KvStor
 
 ### 未検証（実機が必要）
 
-- **ESP-IDF 版としての動作全般**（Arduino 版からの移行後、実機では一度も動かしていない）
 - 消費電流（減光中の light sleep、DFS）、描画時間、入力割り込みでの復帰、light sleep 中の画面表示の乱れの有無
-- 実機での表示（AMOLED の輝度・発光の見え方、円の縁の余白）、タッチ座標・長押し、ボタン
 - MultiFirm スロットへの導入、A+B 1.6 秒での Launcher 復帰、KEY B 起動脱出、Launcher 往復で時刻が 9 時間ずれないこと
-- RX8130CE への書込・読み返し、電源 OFF/ON 後の復元。Arduino 版で保存した NVS データの読み込み
-- SoftAP 接続（esp_wifi）、Web からの CRUD・並び替え・選択（esp_http_server）、5 分無操作停止、ブラウザ時刻送信
-- STA 接続・NTP 自動補正（lwIP）・切断/再接続・タイムアウト/DNS 失敗時の継続（ロジックはユニットテストのみ）
+- Arduino 版で保存した NVS データの読み込み
+- Web 設定の 5 分無操作停止、STA の切断/再接続・タイムアウト/DNS 失敗時の継続（ロジックはユニットテストのみ）
 - 到達時の音・振動
 
 ## 設計上の注意・既知の制限

@@ -15,9 +15,10 @@
 [wararyoLauncher](https://github.com/wararyo/M5StopWatch-wararyoLauncher) のゲストアプリとして入れることもできます
 （→ [docs/LAUNCHER.md](docs/LAUNCHER.md)）。この README は単体で使う場合の手順です。
 
-> [!WARNING]
-> **実機での動作確認がまだ済んでいません**（ビルド・ユニットテスト・PC シミュレータでの描画確認のみ）。
-> 詳細は [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md#検証結果2026-10-24esp-idf-移行後) を参照してください。
+> [!NOTE]
+> 単体で書き込んだ実機で、起動・表示・操作、設定と時刻の保存、Wi-Fi・Web 設定の動作を確認しました。
+> wararyoLauncher のゲストとしての動作、消費電流、到達時の音・振動などはまだ実機で確認していません。
+> 詳細は [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md#検証結果) を参照してください。
 
 ## 必要なもの
 
@@ -66,7 +67,7 @@ USB で接続した M5StopWatch のシリアルポートを確認します。
    sha256sum ~/Downloads/EventCountDown-v0.1.0-standalone.bin       # Linux
    ```
 
-4. 元に戻したい場合に備えて、16 MB 全体をバックアップしておくことをおすすめします（数分かかります）。
+4. 元に戻したい場合に備えて、16 MB 全体をバックアップしておくことをおすすめします（1〜2 分かかります）。
 
    ```sh
    esptool --chip esp32s3 --port COM11 read-flash 0 0x1000000 backup.bin
@@ -80,6 +81,8 @@ USB で接続した M5StopWatch のシリアルポートを確認します。
 
 `standalone.bin` はブートローダ・パーティション表・アプリを 1 つにまとめたイメージです。
 同じリリースの `launcher.bin` は wararyoLauncher 用なので、この手順には使いません。
+イメージには NVS（設定の保存領域）を空にした内容も含まれているので、書き込むと**設定・イベントは消えます**
+（前の版からの更新でも同じです）。そのため別のファームウェアからの入れ替えでも、NVS を別に消去する必要はありません。
 
 ## 書き込み（ソースからビルドする）
 
@@ -93,6 +96,7 @@ pio run -t upload --upload-port COM11       # ポートを指定する場合
 初回は ESP-IDF などのダウンロードで時間がかかります。ビルドだけなら `pio run` です。
 
 書き込む前に 16 MB 全体をバックアップする場合は、PlatformIO に入っている esptool（4.9）を使って次のようにします。
+4.9 は読み出しが遅く 25 分ほどかかるので、esptool v5 があれば前節の `read-flash`（1〜2 分）を使うほうが早く済みます。
 
 ```sh
 pio pkg exec -p "platformio/tool-esptoolpy@~2.40900.0" -- esptool.py --chip esp32s3 --port COM11 read_flash 0 0x1000000 backup.bin
@@ -103,6 +107,19 @@ pio pkg exec -p "platformio/tool-esptoolpy@~2.40900.0" -- esptool.py --chip esp3
 | `m5stopwatch`（既定） | 単体で動かすファームウェア |
 | `m5stopwatch-launcher` | wararyoLauncher のゲストスロット用（[docs/LAUNCHER.md](docs/LAUNCHER.md)） |
 | `native` | PC シミュレータ（[docs/DEVELOPMENT.md](docs/DEVELOPMENT.md#pc-シミュレータnative--sdl2)） |
+
+### 別のファームウェアから入れ替えた場合（NVS の消去）
+
+`pio run -t upload` はブートローダ・パーティション表・アプリだけを書き込み、NVS（設定の保存領域）には触れません。
+そのため wararyoLauncher など別のファームウェアが入っていた本体に書き込むと、前のファームウェアの NVS が残り、
+シリアルログに `[NVS] unavailable: ESP_ERR_NVS_NO_FREE_PAGES; settings will not be kept` と出て設定が保存されないことがあります。
+アプリは NVS を自分では消さないので、書き込みのあとに NVS 領域（`0x9000` から 20 KB）だけを消去してから本体をリセットしてください。
+この領域にある設定・イベントも消えます。
+
+```sh
+esptool --chip esp32s3 --port COM11 erase-region 0x9000 0x5000     # esptool v5 以降
+pio pkg exec -p "platformio/tool-esptoolpy@~2.40900.0" -- esptool.py --chip esp32s3 --port COM11 erase_region 0x9000 0x5000   # PlatformIO の esptool（4.9）
+```
 
 ### シリアルログ
 

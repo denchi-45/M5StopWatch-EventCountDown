@@ -25,7 +25,7 @@ static int g_fail = 0, g_pass = 0;
     } while (0)
 
 static int64_t jst(int y, int mo, int d, int h = 0, int mi = 0, int s = 0) {
-    int64_t t;
+    int64_t t = 0;
     localToUtc(Civil{y, mo, d, h, mi, s}, Tz::AsiaTokyo, t);
     return t;
 }
