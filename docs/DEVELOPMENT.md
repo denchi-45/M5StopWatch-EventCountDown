@@ -1,6 +1,6 @@
 # 開発者向けメモ
 
-ビルド・書き込みの手順は [README.md](../README.md) を参照。ここでは PC シミュレータ、テスト、ソース構成、
+ビルド・書き込みの手順は [README.md](../README.md)（単体）と [LAUNCHER.md](LAUNCHER.md)（wararyoLauncher）を参照。ここでは PC シミュレータ、テスト、ソース構成、
 設計上の注意、検証状況をまとめる。
 
 仕様は SPECIFICATION.md v2.4（デザインキット `M5StopWatchi_CountDown_Design_Kit_v2.4.zip` 内）に準拠している。
@@ -10,15 +10,15 @@
 
 - ESP-IDF 5.5（PlatformIO `platform = espressif32 @ 6.12.0`、`framework = espidf`。wararyoLauncher と同じ構成）
 - M5Unified 0.2.16 / M5GFX 0.2.28 / ArduinoJson 7.2.1（ヘッダのみ。Arduino フレームワークは使わない）
-- [M5StopWatch-MultiFirm](https://github.com/wararyo/M5StopWatch-MultiFirm) v1.1.0（Launcher 連携。`lib_deps` で自動取得）
+- [M5StopWatch-MultiFirm](https://github.com/wararyo/M5StopWatch-MultiFirm) v1.1.0（Launcher 連携。`m5stopwatch-launcher` 環境だけが `lib_deps` で取得し、`CD_MULTIFIRM_GUEST` を定義する）
 
 | ファイル | 役割 |
 |---|---|
-| `platformio.ini` | 環境 `m5stopwatch`（既定、ゲスト用）/ `m5stopwatch-standalone`（単体機）/ `native`（シミュレータ） |
+| `platformio.ini` | 環境 `m5stopwatch`（既定、単体用）/ `m5stopwatch-launcher`（wararyoLauncher のゲスト用）/ `native`（シミュレータ） |
 | `CMakeLists.txt`, `src/CMakeLists.txt` | ESP-IDF のプロジェクトとコンポーネント（ソース一覧・Web UI の埋め込み）。**ソースを追加したら `src/CMakeLists.txt` にも足す** |
 | `sdkconfig.defaults` / `sdkconfig.defaults.esp32s3` | ESP-IDF の設定（共通 / 機種別：電源管理、PSRAM、HTTP ヘッダ長など） |
-| `partitions.csv` | 単体機用のパーティション表（ゲストスロットでは使われない） |
-| `tools/upload_guard.py` | MultiFirm の書込保護（MultiFirm 配布物のコピー） |
+| `partitions.csv` | 単体用のパーティション表（Launcher のゲストスロットでは使われない） |
+| `tools/upload_guard.py` | `m5stopwatch-launcher` の書込保護（MultiFirm 配布物のコピー） |
 
 PlatformIO は環境ごとに `sdkconfig.<環境名>` を生成する（リポジトリには含めない）。`sdkconfig.defaults*` を
 変えたら `sdkconfig.<環境名>` を消してからビルドし直す。
@@ -104,7 +104,7 @@ tools/preview/                  画面を PNG に描画するホスト用ハー�
 sim/                            PC シミュレータ用の差し替え（KvStore・RTC・ネットワーク、エントリポイント）
 ```
 
-## 省電力と描画（v2.0、wararyoLauncher に倣う）
+## 省電力と描画（wararyoLauncher に倣う）
 
 | 項目 | 内容 |
 |---|---|
@@ -126,9 +126,10 @@ sim/                            PC シミュレータ用の差し替え（KvStor
 
 | 項目 | 結果 |
 |---|---|
-| `pio run -e m5stopwatch` | 成功（ESP-IDF 5.5.0）。firmware.bin **1,547,456 bytes**（ゲスト上限 2,031,616 の 76%）、静的 RAM 43.4 KB。自作コードの警告なし |
+| `pio run -e m5stopwatch-launcher`（当時の既定環境） | 成功（ESP-IDF 5.5.0）。firmware.bin **1,547,456 bytes**（ゲスト上限 2,031,616 の 76%）、静的 RAM 43.4 KB。自作コードの警告なし |
 | MultiFirm `inspect` | 「受け付け可能」（ゲスト上限内、付加 SHA 有効、project_name `EventCountDown`） |
-| upload guard | `pio run -t upload` が拒否されることを確認 |
+| upload guard | ゲスト用環境で `pio run -t upload` が拒否されることを確認 |
+| `pio run -e m5stopwatch`（単体、2026-10-26 の環境分割後） | 成功。firmware.bin 1,539,888 bytes、MultiFirm のコードを含まないことを確認。ゲスト用は 1,547,904 bytes で `inspect` 受け付け可能（version `0.1.0`） |
 | `pio run -e native`（シミュレータ） | ビルド成功（起動しての操作確認は未実施） |
 | ユニットテスト（WSL g++ 13） | 257 passed / 0 failed |
 | 部分描画 | プレビュー用ハーネスで、秒ごとの部分描画を全面描画とピクセル比較。丸型（時・日の境目、最終 1 時間、到達）と長方形（日の境目）の 360 フレームで不一致 0 |
